@@ -1,0 +1,77 @@
+{
+  "id": "/?source=pwa",
+  "name": "ParkPass — Visitor Parking Management",
+  "short_name": "ParkPass",
+  "description": "QR-based visitor parking reservation, verification, and slot allocation for gated residential communities.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "categories": ["utilities", "productivity", "business"],
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Scan QR Pass",
+      "short_name": "Guard Scanner",
+      "description": "Scan and verify arriving or departing visitor passes",
+      "url": "/guard",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Book Visitor Pass",
+      "short_name": "Book Pass",
+      "description": "Reserve visitor parking slot and generate instant QR pass",
+      "url": "/resident",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Admin Dashboard",
+      "short_name": "Admin",
+      "description": "View parking occupancy map and society visitor records",
+      "url": "/admin",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
