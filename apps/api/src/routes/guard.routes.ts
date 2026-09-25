@@ -7,6 +7,8 @@ import { z } from 'zod';
 
 const VerifyPassSchema = z.object({
   qrData: z.string().min(1, 'QR data or Pass Code is required'),
+  autoCheckout: z.boolean().optional().default(false),
+  gateId: z.string().optional().nullable(),
 });
 
 const ConfirmEntrySchema = z.object({
@@ -24,6 +26,104 @@ const WalkInSchema = z.object({
   durationHours: z.number().min(1).max(24).default(4),
   gateId: z.string().optional().nullable(),
 });
+
+// Helper for atomic vehicle checkout and slot release
+async function executeCheckoutSession({
+  sessionId,
+  societyId,
+  guardId,
+  gateId,
+}: {
+  sessionId: string;
+  societyId: string;
+  guardId: string;
+  gateId?: string | null;
+}) {
+  const session = await prisma.parkingSession.findFirst({
+    where: {
+      id: sessionId,
+      societyId,
+    },
+    include: {
+      pass: { include: { resident: true } },
+      parkingSlot: true,
+    },
+  });
+
+  if (!session) {
+    throw new Error('Active parking session not found');
+  }
+
+  if (session.status !== 'ACTIVE') {
+    throw new Error(`Session is already ${session.status.toLowerCase()}`);
+  }
+
+  const now = new Date();
+  const durationMinutes = Math.max(0, Math.floor((now.getTime() - new Date(session.actualEntryTime).getTime()) / 60000));
+  const validUntil = new Date(session.pass.validUntil);
+  const wasOverstay = now > validUntil;
+
+  await prisma.$transaction(async (tx) => {
+    // 1. Mark session COMPLETED or OVERSTAYED
+    await tx.parkingSession.update({
+      where: { id: session.id },
+      data: {
+        actualExitTime: now,
+        status: wasOverstay ? 'OVERSTAYED' : 'COMPLETED',
+        guardExitId: guardId,
+        exitGateId: gateId || null,
+      },
+    });
+
+    // 2. Mark pass CHECKED_OUT
+    await tx.visitorPass.update({
+      where: { id: session.passId },
+      data: { status: 'CHECKED_OUT' },
+    });
+
+    // 3. Release any reservation
+    await tx.parkingReservation.updateMany({
+      where: { passId: session.passId },
+      data: { status: 'RELEASED' },
+    });
+
+    // 4. Record VisitEvent
+    await tx.visitEvent.create({
+      data: {
+        societyId,
+        passId: session.passId,
+        sessionId: session.id,
+        eventType: 'EXIT_CONFIRMED',
+        eventTime: now,
+        guardId,
+        gateId: gateId || null,
+        metadata: JSON.stringify({
+          durationMinutes,
+          wasOverstay,
+          slot: session.parkingSlot.slotNumber,
+        }),
+      },
+    });
+
+    // 5. Notify resident
+    await tx.notification.create({
+      data: {
+        societyId,
+        userId: session.pass.residentId,
+        title: 'Visitor Departed',
+        message: `${session.pass.visitorName} (${session.pass.vehicleNumber}) has left the building. Parking slot ${session.parkingSlot.slotNumber} has been released.`,
+        type: 'EXIT',
+      },
+    });
+  });
+
+  return {
+    session,
+    durationMinutes,
+    slotNumber: session.parkingSlot.slotNumber,
+    wasOverstay,
+  };
+}
 
 export async function guardRoutes(fastify: FastifyInstance) {
   // Middleware: verify guard or admin
@@ -172,26 +272,127 @@ export async function guardRoutes(fastify: FastifyInstance) {
     }
 
     if (pass.status === 'CHECKED_IN') {
+      const activeSession = await prisma.parkingSession.findFirst({
+        where: {
+          passId: pass.id,
+          status: 'ACTIVE',
+        },
+        include: {
+          parkingSlot: true,
+        },
+      });
+
+      if (!activeSession) {
+        return reply.send({
+          isValid: false,
+          code: 'NO_ACTIVE_SESSION',
+          message: 'Pass is marked as checked in, but no active parking session was found.',
+        });
+      }
+
+      const now = new Date();
+      const actualEntry = activeSession.actualEntryTime ? new Date(activeSession.actualEntryTime) : new Date();
+      const durationMinutes = Math.max(0, Math.floor((now.getTime() - actualEntry.getTime()) / 60000));
+      const validUntil = new Date(pass.validUntil);
+      const isOverstay = now > validUntil;
+      const overstayMinutes = isOverstay ? Math.floor((now.getTime() - validUntil.getTime()) / 60000) : 0;
+
+      // If autoCheckout flag is set (e.g. from guard auto-exit scan mode)
+      if (parseResult.data.autoCheckout) {
+        const checkoutResult = await executeCheckoutSession({
+          sessionId: activeSession.id,
+          societyId: user.societyId,
+          guardId: user.id,
+          gateId: parseResult.data.gateId,
+        });
+
+        return reply.send({
+          isValid: true,
+          action: 'EXIT_COMPLETED',
+          code: 'CHECKED_OUT',
+          message: `Visitor marked as left from building! Slot ${checkoutResult.slotNumber} is now free.`,
+          pass: {
+            id: pass.id,
+            passCode: pass.passCode,
+            visitorName: pass.visitorName,
+            visitorPhone: pass.visitorPhone,
+            vehicleNumber: pass.vehicleNumber,
+            vehicleType: pass.vehicleType,
+            visitorCategory: pass.visitorCategory,
+            towerName: pass.resident.flat?.tower.name || 'Tower',
+            flatNumber: pass.resident.flat?.flatNumber || '',
+            residentName: pass.resident.name,
+            slotId: pass.parkingSlotId,
+            slotNumber: pass.parkingSlot.slotNumber,
+            slotZone: pass.parkingSlot.zone,
+            validFrom: pass.validFrom,
+            validUntil: pass.validUntil,
+            status: 'CHECKED_OUT',
+          },
+          session: {
+            id: activeSession.id,
+            actualEntryTime: activeSession.actualEntryTime,
+            actualExitTime: now,
+            durationMinutes,
+            isOverstay,
+            overstayMinutes,
+          },
+        });
+      }
+
+      // Return READY_FOR_EXIT so guard can confirm departure and release slot
       return reply.send({
-        isValid: false,
-        code: 'ALREADY_CHECKED_IN',
-        message: 'This vehicle is already checked in. Duplicate entry is not permitted.',
+        isValid: true,
+        action: 'EXIT',
+        code: 'READY_FOR_EXIT',
+        message: `Visitor is currently parked in Slot ${pass.parkingSlot.slotNumber}. Scanning again marks departure and releases the slot.`,
         pass: {
           id: pass.id,
           passCode: pass.passCode,
           visitorName: pass.visitorName,
+          visitorPhone: pass.visitorPhone,
           vehicleNumber: pass.vehicleNumber,
+          vehicleType: pass.vehicleType,
+          visitorCategory: pass.visitorCategory,
+          towerName: pass.resident.flat?.tower.name || 'Tower',
+          flatNumber: pass.resident.flat?.flatNumber || '',
+          residentName: pass.resident.name,
+          slotId: pass.parkingSlotId,
           slotNumber: pass.parkingSlot.slotNumber,
+          slotZone: pass.parkingSlot.zone,
+          validFrom: pass.validFrom,
+          validUntil: pass.validUntil,
           status: pass.status,
+        },
+        session: {
+          id: activeSession.id,
+          actualEntryTime: activeSession.actualEntryTime,
+          durationMinutes,
+          isOverstay,
+          overstayMinutes,
         },
       });
     }
 
     if (pass.status === 'CHECKED_OUT') {
+      const lastSession = await prisma.parkingSession.findFirst({
+        where: { passId: pass.id },
+        orderBy: { actualExitTime: 'desc' },
+      });
+      const exitTimeStr = lastSession?.actualExitTime
+        ? new Date(lastSession.actualExitTime).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })
+        : '';
       return reply.send({
         isValid: false,
         code: 'ALREADY_CHECKED_OUT',
-        message: 'This pass has already been used and completed. A new pass is required.',
+        message: `This pass has already been completed. Visitor already left the building${exitTimeStr ? ` at ${exitTimeStr}` : ''}.`,
+        pass: {
+          id: pass.id,
+          passCode: pass.passCode,
+          visitorName: pass.visitorName,
+          vehicleNumber: pass.vehicleNumber,
+          status: pass.status,
+        },
       });
     }
 
@@ -573,88 +774,81 @@ export async function guardRoutes(fastify: FastifyInstance) {
     const { sessionId } = request.params as any;
     const body = (request.body as any) || {};
 
-    const session = await prisma.parkingSession.findFirst({
-      where: {
-        id: sessionId,
+    try {
+      const result = await executeCheckoutSession({
+        sessionId,
         societyId: user.societyId,
-      },
-      include: {
-        pass: { include: { resident: true } },
-        parkingSlot: true,
-      },
-    });
+        guardId: user.id,
+        gateId: body.gateId,
+      });
 
-    if (!session) {
-      return reply.status(404).send({ error: 'Active parking session not found' });
+      return reply.send({
+        success: true,
+        message: `Checkout confirmed. Slot ${result.slotNumber} is now free. Total duration: ${Math.floor(result.durationMinutes / 60)}h ${result.durationMinutes % 60}m.`,
+        durationMinutes: result.durationMinutes,
+        slotNumber: result.slotNumber,
+      });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message });
+    }
+  });
+
+  // POST /mark-exit (Checkout directly by passId or qrData)
+  fastify.post('/mark-exit', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const body = (request.body as any) || {};
+    let passId = body.passId;
+
+    if (!passId && body.qrData) {
+      let qrData = String(body.qrData).trim();
+      if (qrData.includes('/pass/')) {
+        const parts = qrData.split('/pass/');
+        qrData = parts[parts.length - 1].split('?')[0];
+      }
+      const pass = await prisma.visitorPass.findFirst({
+        where: {
+          societyId: user.societyId,
+          OR: [{ secureToken: qrData }, { passCode: qrData.toUpperCase() }],
+        },
+      });
+      if (pass) {
+        passId = pass.id;
+      }
     }
 
-    if (session.status !== 'ACTIVE') {
-      return reply.status(400).send({ error: `Session is already ${session.status.toLowerCase()}` });
+    if (!passId) {
+      return reply.status(400).send({ error: 'passId or valid qrData is required' });
     }
 
-    const now = new Date();
-    const durationMinutes = Math.floor((now.getTime() - new Date(session.actualEntryTime).getTime()) / 60000);
-    const validUntil = new Date(session.pass.validUntil);
-    const wasOverstay = now > validUntil;
-
-    await prisma.$transaction(async (tx) => {
-      // 1. Mark session COMPLETED
-      await tx.parkingSession.update({
-        where: { id: session.id },
-        data: {
-          actualExitTime: now,
-          status: wasOverstay ? 'OVERSTAYED' : 'COMPLETED',
-          guardExitId: user.id,
-          exitGateId: body.gateId || null,
-        },
-      });
-
-      // 2. Mark pass CHECKED_OUT
-      await tx.visitorPass.update({
-        where: { id: session.passId },
-        data: { status: 'CHECKED_OUT' },
-      });
-
-      // 3. Release any reservation
-      await tx.parkingReservation.updateMany({
-        where: { passId: session.passId },
-        data: { status: 'RELEASED' },
-      });
-
-      // 4. Record VisitEvent
-      await tx.visitEvent.create({
-        data: {
-          societyId: user.societyId,
-          passId: session.passId,
-          sessionId: session.id,
-          eventType: 'EXIT_CONFIRMED',
-          eventTime: now,
-          guardId: user.id,
-          gateId: body.gateId || null,
-          metadata: JSON.stringify({
-            durationMinutes,
-            wasOverstay,
-            slot: session.parkingSlot.slotNumber,
-          }),
-        },
-      });
-
-      // 5. Notify resident
-      await tx.notification.create({
-        data: {
-          societyId: user.societyId,
-          userId: session.pass.residentId,
-          title: 'Visitor Departed',
-          message: `${session.pass.visitorName} (${session.pass.vehicleNumber}) has checked out. Parking slot ${session.parkingSlot.slotNumber} has been released.`,
-          type: 'EXIT',
-        },
-      });
+    const activeSession = await prisma.parkingSession.findFirst({
+      where: {
+        passId,
+        societyId: user.societyId,
+        status: 'ACTIVE',
+      },
     });
 
-    return reply.send({
-      message: `Checkout confirmed. Slot ${session.parkingSlot.slotNumber} is now free. Total duration: ${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m.`,
-      durationMinutes,
-    });
+    if (!activeSession) {
+      return reply.status(404).send({ error: 'No active parking session found for this pass' });
+    }
+
+    try {
+      const result = await executeCheckoutSession({
+        sessionId: activeSession.id,
+        societyId: user.societyId,
+        guardId: user.id,
+        gateId: body.gateId,
+      });
+
+      return reply.send({
+        success: true,
+        message: `Visitor successfully marked as left from building. Slot ${result.slotNumber} is released.`,
+        durationMinutes: result.durationMinutes,
+        slotNumber: result.slotNumber,
+      });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message });
+    }
   });
 
   // GET /entry-history

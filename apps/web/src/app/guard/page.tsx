@@ -218,6 +218,9 @@ export default function GuardTerminal() {
     setIsScanning(false);
   };
 
+  const [autoMarkExit, setAutoMarkExit] = useState(false);
+  const [markingExit, setMarkingExit] = useState(false);
+
   // Verify Pass Code / Token
   const handleVerify = async (codeToVerify: string) => {
     const code = codeToVerify.trim();
@@ -229,9 +232,15 @@ export default function GuardTerminal() {
     try {
       const res = await fetchApi('/api/v1/guard/verify-pass', {
         method: 'POST',
-        body: JSON.stringify({ qrData: code }),
+        body: JSON.stringify({ qrData: code, autoCheckout: autoMarkExit }),
       });
       setVerifyResult(res);
+
+      // If auto-checkout completed immediately
+      if (res.action === 'EXIT_COMPLETED') {
+        loadDashboard();
+        loadActiveParking();
+      }
     } catch (err: any) {
       setVerifyResult({
         isValid: false,
@@ -240,6 +249,35 @@ export default function GuardTerminal() {
       });
     } finally {
       setVerifying(false);
+    }
+  };
+
+  // Mark Vehicle Left from Building (Checkout)
+  const handleMarkExit = async (passId: string, sessionId?: string) => {
+    setMarkingExit(true);
+    try {
+      let res;
+      if (sessionId) {
+        res = await fetchApi(`/api/v1/guard/checkout/${sessionId}`, {
+          method: 'POST',
+        });
+      } else {
+        res = await fetchApi('/api/v1/guard/mark-exit', {
+          method: 'POST',
+          body: JSON.stringify({ passId }),
+        });
+      }
+
+      alert(`✅ ${res.message || 'Visitor marked as left from building! Slot released.'}`);
+      setVerifyResult(null);
+      setManualCode('');
+      loadDashboard();
+      loadActiveParking();
+      setActiveTab('active');
+    } catch (err: any) {
+      alert(`Failed to mark exit: ${err.message}`);
+    } finally {
+      setMarkingExit(false);
     }
   };
 
@@ -545,10 +583,21 @@ export default function GuardTerminal() {
             </div>
 
             {/* Manual Code Input Fallback */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
-              <label className="block text-[11px] font-semibold text-slate-600">
-                Or enter pass code manually:
-              </label>
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-semibold text-slate-700">
+                  Or enter pass code manually:
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-[11px] text-blue-600 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={autoMarkExit}
+                    onChange={(e) => setAutoMarkExit(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
+                  />
+                  <span>Auto-mark exit on scan</span>
+                </label>
+              </div>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -572,11 +621,116 @@ export default function GuardTerminal() {
               <div
                 className={`p-5 rounded-3xl border shadow-lg animate-in fade-in zoom-in-95 duration-150 ${
                   verifyResult.isValid
-                    ? 'bg-white border-emerald-300'
+                    ? verifyResult.action === 'EXIT'
+                      ? 'bg-amber-50/70 border-amber-300'
+                      : verifyResult.action === 'EXIT_COMPLETED'
+                      ? 'bg-emerald-50 border-emerald-300'
+                      : 'bg-white border-emerald-300'
                     : 'bg-red-50 border-red-200'
                 }`}
               >
-                {verifyResult.isValid ? (
+                {/* 1. VISITOR LEAVING BUILDING (EXIT ACTION) */}
+                {verifyResult.isValid && verifyResult.action === 'EXIT' ? (
+                  <div className="space-y-4">
+                    {/* Header: Visitor Departing */}
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-amber-200">
+                      <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                        <LogOut className="w-5 h-5 stroke-[2.5]" />
+                      </div>
+                      <div>
+                        <div className="text-base font-extrabold text-slate-900">Mark as Left from Building</div>
+                        <div className="text-[11px] text-amber-800 font-medium">Vehicle is currently checked in inside</div>
+                      </div>
+                    </div>
+
+                    {/* Parked Duration banner */}
+                    <div className="bg-amber-100/80 border border-amber-300 rounded-xl p-3 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 text-amber-900 font-semibold">
+                        <Clock className="w-4 h-4 text-amber-700" />
+                        <span>Duration Parked:</span>
+                      </div>
+                      <span className="font-bold text-amber-950">
+                        {Math.floor((verifyResult.session?.durationMinutes || 0) / 60)}h{' '}
+                        {(verifyResult.session?.durationMinutes || 0) % 60}m
+                      </span>
+                    </div>
+
+                    {verifyResult.session?.isOverstay && (
+                      <div className="bg-red-100 border border-red-200 rounded-xl p-2.5 flex items-center gap-2 text-xs text-red-800 font-semibold">
+                        <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                        <span>Overstayed by {verifyResult.session.overstayMinutes} minutes!</span>
+                      </div>
+                    )}
+
+                    {/* Details Table */}
+                    <div className="space-y-2 text-xs bg-white/60 p-3 rounded-2xl border border-amber-200/60">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Visitor:</span>
+                        <span className="font-bold text-slate-900">{verifyResult.pass.visitorName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Vehicle No:</span>
+                        <span className="font-mono font-bold text-slate-900">{verifyResult.pass.vehicleNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Slot to Release:</span>
+                        <span className="font-black text-amber-700 text-sm">
+                          {verifyResult.pass.slotNumber}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Flat Visited:</span>
+                        <span className="font-semibold text-slate-800">
+                          {verifyResult.pass.towerName} — Flat {verifyResult.pass.flatNumber}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action: Confirm Exit & Mark Left */}
+                    <button
+                      onClick={() => handleMarkExit(verifyResult.pass.id, verifyResult.session?.id)}
+                      disabled={markingExit}
+                      className="w-full py-3.5 px-4 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <LogOut className="w-4 h-4 stroke-[2.5]" />
+                      <span>{markingExit ? 'Updating...' : '🚪 Confirm Exit & Mark Left from Building'}</span>
+                    </button>
+                  </div>
+                ) : verifyResult.isValid && verifyResult.action === 'EXIT_COMPLETED' ? (
+                  /* 2. AUTO-CHECKOUT COMPLETED */
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-emerald-200">
+                      <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                        <Check className="w-5 h-5 stroke-[3]" />
+                      </div>
+                      <div>
+                        <div className="text-base font-extrabold text-emerald-950">Marked as Left from Building</div>
+                        <div className="text-[11px] text-emerald-700 font-medium">Slot {verifyResult.pass.slotNumber} is now freed</div>
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-700 space-y-1">
+                      <p>
+                        Visitor <strong>{verifyResult.pass.visitorName}</strong> ({verifyResult.pass.vehicleNumber}) has departed.
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        Duration: {Math.floor((verifyResult.session?.durationMinutes || 0) / 60)}h{' '}
+                        {(verifyResult.session?.durationMinutes || 0) % 60}m.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setVerifyResult(null);
+                        setManualCode('');
+                      }}
+                      className="w-full py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs"
+                    >
+                      Done / Scan Next Pass
+                    </button>
+                  </div>
+                ) : verifyResult.isValid ? (
+                  /* 3. NORMAL ENTRY VERIFICATION */
                   <div className="space-y-4">
                     {/* Header: Visitor Verified */}
                     <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
@@ -633,15 +787,16 @@ export default function GuardTerminal() {
                     </button>
                   </div>
                 ) : (
+                  /* 4. VERIFICATION FAILED / ALREADY CHECKED OUT */
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-red-700 font-bold text-xs uppercase">
                       <XCircle className="w-5 h-5" />
-                      <span>Verification Failed</span>
+                      <span>{verifyResult.code === 'ALREADY_CHECKED_OUT' ? 'Visitor Already Departed' : 'Verification Failed'}</span>
                     </div>
                     <p className="text-xs text-red-800 font-medium">{verifyResult.message}</p>
                     <button
                       onClick={() => setVerifyResult(null)}
-                      className="w-full py-2.5 rounded-xl bg-red-600 text-white font-bold text-xs"
+                      className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs"
                     >
                       Dismiss
                     </button>

@@ -250,4 +250,73 @@ describe('ParkPass Core API & Business Rules Tests', () => {
     assert.ok(csvRes.headers['content-type'].includes('text/csv'));
     assert.ok(csvRes.body.includes('Pass ID,Visitor Name'));
   });
+
+  it('9. Scanning the same QR again marks visitor as left from building', async () => {
+    const now = new Date();
+    // 1. Create immediate pass
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/visitor-passes',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Exit Test Visitor',
+        vehicleNumber: 'MH 04 XY 7788',
+        validFrom: now.toISOString(),
+        durationHours: 2,
+      },
+    });
+    assert.equal(createRes.statusCode, 201);
+    const pass = JSON.parse(createRes.body).pass;
+
+    // 2. First scan (entry confirmation)
+    const entryRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/guard/confirm-entry',
+      headers: { authorization: `Bearer ${guardToken}` },
+      payload: { passId: pass.id },
+    });
+    assert.equal(entryRes.statusCode, 200);
+
+    // 3. Second scan: Scanning the same QR again verifies exit
+    const exitScanRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/guard/verify-pass',
+      headers: { authorization: `Bearer ${guardToken}` },
+      payload: { qrData: pass.secureToken },
+    });
+    assert.equal(exitScanRes.statusCode, 200);
+    const scanBody = JSON.parse(exitScanRes.body);
+    assert.equal(scanBody.isValid, true);
+    assert.equal(scanBody.action, 'EXIT');
+    assert.equal(scanBody.code, 'READY_FOR_EXIT');
+    assert.ok(scanBody.session.id);
+
+    // 4. Mark exit using POST /api/v1/guard/mark-exit (or autoCheckout)
+    const markExitRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/guard/mark-exit',
+      headers: { authorization: `Bearer ${guardToken}` },
+      payload: { passId: pass.id },
+    });
+    assert.equal(markExitRes.statusCode, 200);
+    const markBody = JSON.parse(markExitRes.body);
+    assert.equal(markBody.success, true);
+
+    // Verify pass is CHECKED_OUT and slot is free
+    const updatedPass = await prisma.visitorPass.findUnique({ where: { id: pass.id } });
+    assert.equal(updatedPass?.status, 'CHECKED_OUT');
+
+    // 5. Third scan: scanning again tells guard the visitor has already left
+    const thirdScanRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/guard/verify-pass',
+      headers: { authorization: `Bearer ${guardToken}` },
+      payload: { qrData: pass.secureToken },
+    });
+    assert.equal(thirdScanRes.statusCode, 200);
+    const thirdBody = JSON.parse(thirdScanRes.body);
+    assert.equal(thirdBody.isValid, false);
+    assert.equal(thirdBody.code, 'ALREADY_CHECKED_OUT');
+    assert.ok(thirdBody.message.includes('Visitor already left'));
+  });
 });
