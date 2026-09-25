@@ -567,26 +567,22 @@ export default function GuardTerminal() {
                           </div>
                         </div>
 
-                        {/* Quick 1-tap verify button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManualCode(exp.passCode || exp.secureToken);
-                            setActiveTab('scan');
-                            handleVerify(exp.passCode || exp.secureToken);
-                          }}
-                          className={`px-3 py-1.5 font-bold text-xs rounded-xl shadow-sm transition-all ${
-                            exp.arrivalStatus === 'ARRIVED'
-                              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                              : 'bg-white border border-slate-200 hover:border-blue-400 text-blue-600'
-                          }`}
-                        >
-                          {exp.arrivalStatus === 'ARRIVED' ? 'Allow Entry' : 'Verify'}
-                        </button>
+                        {/* Arrival indicator badge */}
+                        <div className="text-right shrink-0">
+                          <span className="text-[11px] font-mono font-bold text-slate-400 block">
+                            {exp.passCode}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block mt-0.5">
+                            Scan to allow
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
+                <p className="text-[11px] text-slate-400 text-center">
+                  Visitors must present their digital QR pass to be scanned via the <strong>Scan Visitor Pass</strong> button above.
+                </p>
               </div>
             )}
 
