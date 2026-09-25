@@ -170,14 +170,29 @@ export default function GuardTerminal() {
         return;
       }
 
+      // If previous scanner exists, ensure it is stopped
+      if (scannerRef.current) {
+        try {
+          if (scannerRef.current.isScanning) {
+            await scannerRef.current.stop();
+          }
+        } catch (e) {}
+      }
+
       const html5QrCode = new Html5Qrcode('guard-qr-reader');
       scannerRef.current = html5QrCode;
 
       await html5QrCode.start(
         devices[0].id,
-        { fps: 10, qrbox: { width: 240, height: 240 } },
-        (decodedText) => {
-          stopCameraScanner();
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        async (decodedText) => {
+          // Cleanly stop scanner on success
+          try {
+            if (html5QrCode.isScanning) {
+              await html5QrCode.stop();
+            }
+          } catch (e) {}
+          setIsScanning(false);
           handleVerify(decodedText);
         },
         () => {}
@@ -192,9 +207,12 @@ export default function GuardTerminal() {
   const stopCameraScanner = async () => {
     if (scannerRef.current) {
       try {
-        await scannerRef.current.stop();
-        scannerRef.current.clear();
-      } catch (err) {}
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+      } catch (err) {
+        console.warn('Error stopping scanner:', err);
+      }
       scannerRef.current = null;
     }
     setIsScanning(false);
@@ -487,12 +505,13 @@ export default function GuardTerminal() {
 
             {/* Scanner Viewfinder Box */}
             <div className="bg-slate-950 rounded-3xl p-4 text-center relative overflow-hidden border border-slate-800">
-              <div
-                id="guard-qr-reader"
-                className="w-full max-w-[260px] h-[240px] mx-auto rounded-2xl bg-slate-900 flex items-center justify-center text-slate-500 text-xs overflow-hidden"
-              >
+              <div className="relative w-full max-w-[260px] min-h-[240px] mx-auto rounded-2xl bg-slate-900 flex items-center justify-center overflow-hidden">
+                {/* Strictly empty mount target for html5-qrcode */}
+                <div id="guard-qr-reader" className="w-full h-full min-h-[240px]" />
+
+                {/* Sibling placeholder overlay when camera is idle */}
                 {!isScanning && (
-                  <div className="p-4 text-center">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center pointer-events-none bg-slate-900 z-10">
                     <Camera className="w-10 h-10 mx-auto mb-2 text-slate-500 opacity-60" />
                     <p className="text-slate-300 font-semibold text-xs">Ready to scan QR</p>
                     <p className="text-[11px] text-slate-500 mt-1">Point smartphone camera at pass</p>
