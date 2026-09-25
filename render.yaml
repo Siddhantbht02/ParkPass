@@ -3,7 +3,7 @@ services:
     name: parkpass-api
     env: node
     plan: free
-    buildCommand: npm install && npx prisma generate && npm run build:api
+    buildCommand: npm install --include=dev && npx prisma generate && npm run build:api
     startCommand: npm run start:api
     healthCheckPath: /health
     envVars:
