@@ -319,4 +319,112 @@ describe('ParkPass Core API & Business Rules Tests', () => {
     assert.equal(thirdBody.code, 'ALREADY_CHECKED_OUT');
     assert.ok(thirdBody.message.includes('Visitor already left'));
   });
+
+  it('10. Administrator can configure car and two-wheeler capacity and dashboard updates in real time', async () => {
+    // 1. Check current dashboard
+    const initialDash = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/dashboard',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(initialDash.statusCode, 200);
+    const initBody = JSON.parse(initialDash.body);
+    assert.ok(initBody.stats.carSlots);
+    assert.ok(initBody.stats.twoWheelerSlots);
+
+    // 2. Configure capacity to 22 cars and 4 two-wheelers
+    const updateRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/parking-capacity',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { carSlots: 22, twoWheelerSlots: 4 },
+    });
+    assert.equal(updateRes.statusCode, 200);
+    const updateBody = JSON.parse(updateRes.body);
+    assert.equal(updateBody.success, true);
+    assert.equal(updateBody.carSlots, 22);
+    assert.equal(updateBody.twoWheelerSlots, 4);
+
+    // 3. Verify main dashboard immediately updates
+    const updatedDash = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/dashboard',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(updatedDash.statusCode, 200);
+    const updatedBody = JSON.parse(updatedDash.body);
+    assert.equal(updatedBody.stats.carSlots.total, 22);
+    assert.equal(updatedBody.stats.twoWheelerSlots.total, 4);
+    assert.equal(updatedBody.stats.totalSlots, 26);
+
+    // 4. Reduce capacity back down to 18 cars and 2 two-wheelers
+    const reduceRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/parking-capacity',
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: { carSlots: 18, twoWheelerSlots: 2 },
+    });
+    assert.equal(reduceRes.statusCode, 200);
+    const reduceBody = JSON.parse(reduceRes.body);
+    assert.equal(reduceBody.success, true);
+    assert.equal(reduceBody.carSlots, 18);
+    assert.equal(reduceBody.twoWheelerSlots, 2);
+
+    // 5. Verify dashboard after reduction
+    const finalDash = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/dashboard',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(finalDash.statusCode, 200);
+    const finalBody = JSON.parse(finalDash.body);
+    assert.equal(finalBody.stats.carSlots.total, 18);
+    assert.equal(finalBody.stats.twoWheelerSlots.total, 2);
+    assert.equal(finalBody.stats.totalSlots, 20);
+  });
+
+  it('11. Administrator can edit guard settings and resident settings', async () => {
+    // 1. Fetch users
+    const usersRes = await app.inject({
+      method: 'GET',
+      url: '/api/v1/admin/users',
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(usersRes.statusCode, 200);
+    const usersBody = JSON.parse(usersRes.body);
+    const guard = usersBody.users.find((u: any) => u.role === 'GUARD');
+    const resident = usersBody.users.find((u: any) => u.role === 'RESIDENT');
+    assert.ok(guard);
+    assert.ok(resident);
+
+    // 2. Edit guard settings
+    const editGuardRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${guard.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {
+        name: 'Rajesh Kumar (Senior Guard)',
+        email: 'guard.senior@society.com',
+      },
+    });
+    assert.equal(editGuardRes.statusCode, 200);
+    const guardBody = JSON.parse(editGuardRes.body);
+    assert.equal(guardBody.user.name, 'Rajesh Kumar (Senior Guard)');
+    assert.equal(guardBody.user.email, 'guard.senior@society.com');
+
+    // 3. Edit resident settings
+    const editResRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/users/${resident.id}`,
+      headers: { authorization: `Bearer ${adminToken}` },
+      payload: {
+        name: 'Siddhant B. (Owner)',
+        email: 'siddhant.owner@test.com',
+      },
+    });
+    assert.equal(editResRes.statusCode, 200);
+    const resBody = JSON.parse(editResRes.body);
+    assert.equal(resBody.user.name, 'Siddhant B. (Owner)');
+    assert.equal(resBody.user.email, 'siddhant.owner@test.com');
+  });
 });

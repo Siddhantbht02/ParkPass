@@ -31,14 +31,19 @@ import {
   MoreVertical,
   X,
   Phone,
+  Edit,
+  UserPlus,
+  Key,
+  Mail,
+  Shield,
 } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user, isLoading, logout } = useAuth();
   const router = useRouter();
 
-  // Active View: 'overview' (Screen 9), 'parking' (Screen 10), 'visitors' (Screen 11), 'settings', 'audit'
-  const [activeTab, setActiveTab] = useState<'overview' | 'parking' | 'visitors' | 'settings' | 'audit'>('overview');
+  // Active View: 'overview' (Screen 9), 'parking' (Screen 10), 'visitors' (Screen 11), 'guards', 'residents', 'settings', 'audit'
+  const [activeTab, setActiveTab] = useState<'overview' | 'parking' | 'visitors' | 'guards' | 'residents' | 'settings' | 'audit'>('overview');
 
   // Dashboard Stats (Screen 9)
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -51,6 +56,12 @@ export default function AdminDashboard() {
   const [overrideReason, setOverrideReason] = useState('');
   const [slotSearch, setSlotSearch] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Capacity Configuration Modal
+  const [isCapacityModalOpen, setIsCapacityModalOpen] = useState(false);
+  const [targetCarSlots, setTargetCarSlots] = useState<number>(18);
+  const [targetBikeSlots, setTargetBikeSlots] = useState<number>(2);
+  const [savingCapacity, setSavingCapacity] = useState(false);
 
   // Add Slot Modal
   const [isAddSlotOpen, setIsAddSlotOpen] = useState(false);
@@ -68,12 +79,53 @@ export default function AdminDashboard() {
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loadingAudit, setLoadingAudit] = useState(false);
 
-  // Society Config State
+  // Users (Guards & Residents) State
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [flatsList, setFlatsList] = useState<any[]>([]);
+  const [guardSearch, setGuardSearch] = useState('');
+  const [residentSearch, setResidentSearch] = useState('');
+
+  // Edit Guard Modal State
+  const [isEditGuardOpen, setIsEditGuardOpen] = useState(false);
+  const [selectedGuard, setSelectedGuard] = useState<any>(null);
+  const [editGuardName, setEditGuardName] = useState('');
+  const [editGuardPhone, setEditGuardPhone] = useState('');
+  const [editGuardEmail, setEditGuardEmail] = useState('');
+  const [editGuardIsActive, setEditGuardIsActive] = useState(true);
+  const [editGuardPassword, setEditGuardPassword] = useState('');
+  const [savingGuard, setSavingGuard] = useState(false);
+
+  // Add Guard Modal State
+  const [isAddGuardOpen, setIsAddGuardOpen] = useState(false);
+  const [newGuardName, setNewGuardName] = useState('');
+  const [newGuardPhone, setNewGuardPhone] = useState('');
+  const [newGuardEmail, setNewGuardEmail] = useState('');
+  const [newGuardPassword, setNewGuardPassword] = useState('password123');
+
+  // Edit Resident Modal State
+  const [isEditResidentOpen, setIsEditResidentOpen] = useState(false);
+  const [selectedResident, setSelectedResident] = useState<any>(null);
+  const [editResidentName, setEditResidentName] = useState('');
+  const [editResidentPhone, setEditResidentPhone] = useState('');
+  const [editResidentEmail, setEditResidentEmail] = useState('');
+  const [editResidentFlatId, setEditResidentFlatId] = useState('');
+  const [editResidentIsActive, setEditResidentIsActive] = useState(true);
+  const [editResidentPassword, setEditResidentPassword] = useState('');
+  const [savingResident, setSavingResident] = useState(false);
+
+  // Add Resident Modal State
+  const [isAddResidentOpen, setIsAddResidentOpen] = useState(false);
+  const [newResidentName, setNewResidentName] = useState('');
+  const [newResidentPhone, setNewResidentPhone] = useState('');
+  const [newResidentEmail, setNewResidentEmail] = useState('');
+  const [newResidentFlatId, setNewResidentFlatId] = useState('');
+  const [newResidentPassword, setNewResidentPassword] = useState('password123');
+
+  // Society Config State (Only Society Name & Address)
   const [societyInfo, setSocietyInfo] = useState<any>(null);
   const [configName, setConfigName] = useState('');
   const [configAddress, setConfigAddress] = useState('');
-  const [configMaxDuration, setConfigMaxDuration] = useState(48);
-  const [configApproval, setConfigApproval] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
 
   useEffect(() => {
@@ -89,6 +141,12 @@ export default function AdminDashboard() {
       setLoadingDashboard(true);
       const data = await fetchApi('/api/v1/admin/dashboard');
       setDashboardData(data);
+      if (data?.stats?.carSlots?.total !== undefined) {
+        setTargetCarSlots(data.stats.carSlots.total);
+      }
+      if (data?.stats?.twoWheelerSlots?.total !== undefined) {
+        setTargetBikeSlots(data.stats.twoWheelerSlots.total);
+      }
     } catch (err) {
       console.error('Failed to load admin dashboard:', err);
     } finally {
@@ -105,6 +163,10 @@ export default function AdminDashboard() {
         // default select first occupied or first slot
         const occ = data.slots.find((s: any) => s.status === 'OCCUPIED');
         setSelectedSlot(occ || data.slots[0]);
+      } else if (selectedSlot) {
+        // keep selectedSlot reference in sync
+        const updated = data.slots?.find((s: any) => s.id === selectedSlot.id);
+        if (updated) setSelectedSlot(updated);
       }
     } catch (err) {
       console.error('Failed to load slots:', err);
@@ -145,10 +207,29 @@ export default function AdminDashboard() {
       setSocietyInfo(data.society);
       setConfigName(data.society.name);
       setConfigAddress(data.society.address);
-      setConfigMaxDuration(data.society.configuration?.maxParkingDurationHours || 48);
-      setConfigApproval(data.society.configuration?.residentApprovalRequired ?? true);
     } catch (err) {
       console.error('Failed to load config:', err);
+    }
+  };
+
+  const loadUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const data = await fetchApi('/api/v1/admin/users');
+      setUsersList(data.users || []);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const loadFlats = async () => {
+    try {
+      const data = await fetchApi('/api/v1/admin/flats');
+      setFlatsList(data.flats || []);
+    } catch (err) {
+      console.error('Failed to load flats:', err);
     }
   };
 
@@ -156,14 +237,30 @@ export default function AdminDashboard() {
     if (user && user.role === 'ADMIN') {
       loadDashboard();
       loadSlots();
+      loadUsers();
+      loadFlats();
     }
   }, [user]);
 
   useEffect(() => {
-    if (activeTab === 'parking') loadSlots();
-    else if (activeTab === 'visitors') loadRecords();
-    else if (activeTab === 'audit') loadAudit();
-    else if (activeTab === 'settings') loadConfig();
+    if (activeTab === 'overview') {
+      loadDashboard();
+      loadSlots();
+    } else if (activeTab === 'parking') {
+      loadSlots();
+      loadDashboard();
+    } else if (activeTab === 'visitors') {
+      loadRecords();
+    } else if (activeTab === 'guards') {
+      loadUsers();
+    } else if (activeTab === 'residents') {
+      loadUsers();
+      loadFlats();
+    } else if (activeTab === 'audit') {
+      loadAudit();
+    } else if (activeTab === 'settings') {
+      loadConfig();
+    }
   }, [activeTab, recordsFilter, recordsSearch]);
 
   const handleExportCsv = () => {
@@ -185,8 +282,7 @@ export default function AdminDashboard() {
       });
       setIsAddSlotOpen(false);
       setNewSlotNumber('');
-      loadSlots();
-      loadDashboard();
+      await Promise.all([loadSlots(), loadDashboard()]);
     } catch (err: any) {
       alert(`Failed to add slot: ${err.message}`);
     } finally {
@@ -211,8 +307,7 @@ export default function AdminDashboard() {
       });
       alert(`Slot ${selectedSlot.slotNumber} forcefully released and logged.`);
       setOverrideReason('');
-      loadSlots();
-      loadDashboard();
+      await Promise.all([loadSlots(), loadDashboard()]);
     } catch (err: any) {
       alert(`Override failed: ${err.message}`);
     } finally {
@@ -230,13 +325,83 @@ export default function AdminDashboard() {
           reason: !currentActive ? 'Slot unblocked by admin' : 'Slot blocked by admin',
         }),
       });
-      loadSlots();
+      await Promise.all([loadSlots(), loadDashboard()]);
+      if (selectedSlot?.id === slotId) {
+        setSelectedSlot((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                isActive: !currentActive,
+                status: !currentActive ? 'AVAILABLE' : 'BLOCKED',
+              }
+            : prev
+        );
+      }
     } catch (err: any) {
       alert(`Update failed: ${err.message}`);
     }
   };
 
-  // Save Config
+  // Modify Capacity (Car & Two-Wheeler spaces)
+  const handleUpdateCapacity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingCapacity(true);
+    try {
+      const res = await fetchApi('/api/v1/admin/parking-capacity', {
+        method: 'POST',
+        body: JSON.stringify({
+          carSlots: Number(targetCarSlots),
+          twoWheelerSlots: Number(targetBikeSlots),
+        }),
+      });
+      alert(res.message || 'Parking spaces capacity updated successfully!');
+      setIsCapacityModalOpen(false);
+      await Promise.all([loadSlots(), loadDashboard()]);
+    } catch (err: any) {
+      alert(`Failed to update parking capacity: ${err.message}`);
+    } finally {
+      setSavingCapacity(false);
+    }
+  };
+
+  // Change individual slot type
+  const handleChangeSlotType = async (slotId: string, newType: string) => {
+    setActionLoading(true);
+    try {
+      await fetchApi(`/api/v1/admin/parking-slots/${slotId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ parkingType: newType }),
+      });
+      await Promise.all([loadSlots(), loadDashboard()]);
+      if (selectedSlot?.id === slotId) {
+        setSelectedSlot((prev: any) => (prev ? { ...prev, parkingType: newType } : prev));
+      }
+    } catch (err: any) {
+      alert(`Failed to change slot type: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Delete individual slot
+  const handleDeleteSlot = async (slot: any) => {
+    if (!confirm(`Are you sure you want to delete parking slot ${slot.slotNumber}?`)) return;
+    setActionLoading(true);
+    try {
+      await fetchApi(`/api/v1/admin/parking-slots/${slot.id}`, {
+        method: 'DELETE',
+      });
+      alert(`Slot ${slot.slotNumber} deleted.`);
+      setSelectedSlot(null);
+      await Promise.all([loadSlots(), loadDashboard()]);
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Save Society Settings (Only Society Name & Address)
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingConfig(true);
@@ -244,19 +409,166 @@ export default function AdminDashboard() {
       await fetchApi('/api/v1/admin/society-config', {
         method: 'PATCH',
         body: JSON.stringify({
-          name: configName,
-          address: configAddress,
-          configuration: {
-            maxParkingDurationHours: Number(configMaxDuration),
-            residentApprovalRequired: configApproval,
-          },
+          name: configName.trim(),
+          address: configAddress.trim(),
         }),
       });
-      alert('Society configuration saved.');
+      alert('Society details saved successfully.');
+      loadConfig();
     } catch (err: any) {
       alert(`Save failed: ${err.message}`);
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  // Guard Management Handlers
+  const openEditGuard = (guard: any) => {
+    setSelectedGuard(guard);
+    setEditGuardName(guard.name || '');
+    setEditGuardPhone(guard.phone || '');
+    setEditGuardEmail(guard.email || '');
+    setEditGuardIsActive(guard.isActive !== false);
+    setEditGuardPassword('');
+    setIsEditGuardOpen(true);
+  };
+
+  const handleSaveGuard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedGuard) return;
+    setSavingGuard(true);
+    try {
+      const payload: any = {
+        name: editGuardName.trim(),
+        phone: editGuardPhone.trim(),
+        email: editGuardEmail.trim() || null,
+        isActive: editGuardIsActive,
+      };
+      if (editGuardPassword && editGuardPassword.trim().length >= 6) {
+        payload.password = editGuardPassword.trim();
+      }
+      await fetchApi(`/api/v1/admin/users/${selectedGuard.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      alert('Guard settings updated successfully.');
+      setIsEditGuardOpen(false);
+      loadUsers();
+    } catch (err: any) {
+      alert(`Update failed: ${err.message}`);
+    } finally {
+      setSavingGuard(false);
+    }
+  };
+
+  const handleCreateGuard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingGuard(true);
+    try {
+      await fetchApi('/api/v1/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newGuardName.trim(),
+          phone: newGuardPhone.trim(),
+          email: newGuardEmail.trim() || null,
+          role: 'GUARD',
+          password: newGuardPassword.trim() || 'password123',
+        }),
+      });
+      alert('New guard registered successfully.');
+      setIsAddGuardOpen(false);
+      setNewGuardName('');
+      setNewGuardPhone('');
+      setNewGuardEmail('');
+      setNewGuardPassword('password123');
+      loadUsers();
+    } catch (err: any) {
+      alert(`Create failed: ${err.message}`);
+    } finally {
+      setSavingGuard(false);
+    }
+  };
+
+  const handleToggleUserActive = async (targetUser: any) => {
+    try {
+      await fetchApi(`/api/v1/admin/users/${targetUser.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isActive: !targetUser.isActive }),
+      });
+      loadUsers();
+    } catch (err: any) {
+      alert(`Status update failed: ${err.message}`);
+    }
+  };
+
+  // Resident Management Handlers
+  const openEditResident = (res: any) => {
+    setSelectedResident(res);
+    setEditResidentName(res.name || '');
+    setEditResidentPhone(res.phone || '');
+    setEditResidentEmail(res.email || '');
+    setEditResidentFlatId(res.flatId || '');
+    setEditResidentIsActive(res.isActive !== false);
+    setEditResidentPassword('');
+    setIsEditResidentOpen(true);
+  };
+
+  const handleSaveResident = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedResident) return;
+    setSavingResident(true);
+    try {
+      const payload: any = {
+        name: editResidentName.trim(),
+        phone: editResidentPhone.trim(),
+        email: editResidentEmail.trim() || null,
+        flatId: editResidentFlatId || null,
+        isActive: editResidentIsActive,
+      };
+      if (editResidentPassword && editResidentPassword.trim().length >= 6) {
+        payload.password = editResidentPassword.trim();
+      }
+      await fetchApi(`/api/v1/admin/users/${selectedResident.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      alert('Resident settings updated successfully.');
+      setIsEditResidentOpen(false);
+      loadUsers();
+    } catch (err: any) {
+      alert(`Update failed: ${err.message}`);
+    } finally {
+      setSavingResident(false);
+    }
+  };
+
+  const handleCreateResident = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingResident(true);
+    try {
+      await fetchApi('/api/v1/admin/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newResidentName.trim(),
+          phone: newResidentPhone.trim(),
+          email: newResidentEmail.trim() || null,
+          role: 'RESIDENT',
+          flatId: newResidentFlatId || null,
+          password: newResidentPassword.trim() || 'password123',
+        }),
+      });
+      alert('New resident registered successfully.');
+      setIsAddResidentOpen(false);
+      setNewResidentName('');
+      setNewResidentPhone('');
+      setNewResidentEmail('');
+      setNewResidentFlatId('');
+      setNewResidentPassword('password123');
+      loadUsers();
+    } catch (err: any) {
+      alert(`Create failed: ${err.message}`);
+    } finally {
+      setSavingResident(false);
     }
   };
 
@@ -322,6 +634,30 @@ export default function AdminDashboard() {
             >
               <Users className="w-4 h-4" />
               <span>Visitors</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('guards')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'guards'
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>Guards</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('residents')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === 'residents'
+                  ? 'bg-blue-50 text-blue-700'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Residents</span>
             </button>
 
             <button
@@ -399,30 +735,42 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* 4 KPI Cards (Total parking, Occupied, Available, Overdue) */}
+            {/* 4 KPI Cards (Total parking, Occupied, Available, Overdue) with Car/Two-Wheeler details */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
                 <span className="text-xs font-semibold text-slate-500 block mb-1">Total parking</span>
                 <div className="text-3xl font-black text-slate-900">
-                  {dashboardData?.stats?.totalSlots ?? 20}
+                  {dashboardData?.stats?.totalSlots ?? parkingSlots.length}
                 </div>
-                <span className="text-[11px] text-slate-400 mt-1 block">Designated visitor slots</span>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap font-medium">
+                  <span className="text-blue-600 font-bold">{dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length} Cars</span>
+                  <span>•</span>
+                  <span className="text-purple-600 font-bold">{dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length} 2W</span>
+                </div>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
                 <span className="text-xs font-semibold text-slate-500 block mb-1">Occupied</span>
                 <div className="text-3xl font-black text-blue-600">
-                  {dashboardData?.stats?.occupiedSlots ?? 1}
+                  {dashboardData?.stats?.occupiedSlots ?? 0}
                 </div>
-                <span className="text-[11px] text-slate-400 mt-1 block">Vehicles parked inside</span>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap font-medium">
+                  <span>{dashboardData?.stats?.carSlots?.occupied ?? 0} Cars</span>
+                  <span>•</span>
+                  <span>{dashboardData?.stats?.twoWheelerSlots?.occupied ?? 0} 2W</span>
+                </div>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
                 <span className="text-xs font-semibold text-slate-500 block mb-1">Available</span>
                 <div className="text-3xl font-black text-emerald-600">
-                  {dashboardData?.stats?.availableSlots ?? 19}
+                  {dashboardData?.stats?.availableSlots ?? 0}
                 </div>
-                <span className="text-[11px] text-slate-400 mt-1 block">Ready for reservations</span>
+                <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap font-medium">
+                  <span className="text-emerald-700 font-bold">{dashboardData?.stats?.carSlots?.available ?? 0} Cars</span>
+                  <span>•</span>
+                  <span className="text-emerald-700 font-bold">{dashboardData?.stats?.twoWheelerSlots?.available ?? 0} 2W</span>
+                </div>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm">
@@ -436,19 +784,35 @@ export default function AdminDashboard() {
 
             {/* Parking Occupancy Progress Chart (Screen 9) */}
             <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div>
                   <h2 className="text-base font-bold text-slate-900">Parking occupancy</h2>
-                  <p className="text-xs text-slate-500">Live visualization of active and upcoming parking slots</p>
+                  <p className="text-xs text-slate-500">Live visualization of all {parkingSlots.length} active visitor parking bays</p>
                 </div>
-                <span className="text-xs font-bold text-blue-600">20 Total Bays</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                    {dashboardData?.stats?.totalSlots ?? parkingSlots.length} Total Bays
+                  </span>
+                  <span className="text-xs font-medium text-slate-500">
+                    ({dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length} Cars • {dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length} Two-Wheelers)
+                  </span>
+                  <button
+                    onClick={() => {
+                      setTargetCarSlots(dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length);
+                      setTargetBikeSlots(dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length);
+                      setIsCapacityModalOpen(true);
+                    }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-800 underline underline-offset-2 ml-1"
+                  >
+                    Modify Spaces
+                  </button>
+                </div>
               </div>
 
-              {/* Progress Visualization Pillars */}
-              <div className="grid grid-cols-10 sm:grid-cols-20 gap-1.5 py-2">
-                {Array.from({ length: 20 }, (_, i) => {
-                  const slotNum = `V-${(i + 1).toString().padStart(2, '0')}`;
-                  const slotObj = parkingSlots.find((s) => s.slotNumber === slotNum);
+              {/* Progress Visualization Pillars - fully dynamic */}
+              <div className="grid grid-cols-5 sm:grid-cols-10 md:grid-cols-12 lg:grid-cols-20 gap-1.5 py-2">
+                {parkingSlots.map((slotObj, i) => {
+                  const slotNum = slotObj.slotNumber;
                   const isOcc = slotObj?.status === 'OCCUPIED';
                   const isRes = slotObj?.status === 'RESERVED';
                   const isBlk = slotObj?.status === 'BLOCKED';
@@ -458,20 +822,27 @@ export default function AdminDashboard() {
                   else if (isRes) color = 'bg-amber-400';
                   else if (isBlk) color = 'bg-slate-300';
 
+                  const typeLabel = slotObj.parkingType === 'TWO_WHEELER' ? '2W' : 'Car';
+
                   return (
                     <div
-                      key={slotNum}
-                      className={`h-12 rounded-lg ${color} flex items-center justify-center text-[10px] font-bold text-white shadow-sm transition-transform hover:scale-105`}
-                      title={`${slotNum}: ${slotObj?.status || 'Available'}`}
+                      key={slotObj.id || slotNum}
+                      onClick={() => {
+                        setSelectedSlot(slotObj);
+                        setActiveTab('parking');
+                      }}
+                      className={`h-12 rounded-lg ${color} flex flex-col items-center justify-center text-[10px] font-bold text-white shadow-sm transition-transform hover:scale-105 cursor-pointer`}
+                      title={`${slotNum} (${slotObj.parkingType}): ${slotObj?.status || 'Available'}`}
                     >
-                      {i + 1}
+                      <span>{slotNum}</span>
+                      <span className="text-[8px] font-normal opacity-90">{typeLabel}</span>
                     </div>
                   );
                 })}
               </div>
 
               {/* Legend */}
-              <div className="flex items-center gap-5 text-xs text-slate-600 pt-2 border-t border-slate-100">
+              <div className="flex items-center gap-5 text-xs text-slate-600 pt-2 border-t border-slate-100 flex-wrap">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                   <span>Available</span>
@@ -487,6 +858,9 @@ export default function AdminDashboard() {
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-slate-300"></span>
                   <span>Blocked</span>
+                </div>
+                <div className="ml-auto text-[11px] text-slate-400 italic">
+                  Click any bay to view or manage
                 </div>
               </div>
             </div>
@@ -582,10 +956,21 @@ export default function AdminDashboard() {
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">Parking management</h1>
-                <p className="text-xs text-slate-500">Monitor all designated parking bays and resolve slot conflicts.</p>
+                <p className="text-xs text-slate-500">Monitor all designated parking bays, resolve conflicts, and modify society spaces.</p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => {
+                    setTargetCarSlots(dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length);
+                    setTargetBikeSlots(dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length);
+                    setIsCapacityModalOpen(true);
+                  }}
+                  className="py-2 px-4 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-800 font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                >
+                  <Settings className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Modify Parking Spaces</span>
+                </button>
                 <button
                   onClick={() => setIsAddSlotOpen(true)}
                   className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-blue-500/20"
@@ -596,13 +981,62 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {/* Quick Capacity Control & Stats Bar */}
+            <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-3 bg-blue-50/70 border border-blue-100 px-4 py-2.5 rounded-xl">
+                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                    🚗
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Car Parking Spaces</div>
+                    <div className="text-base font-black text-slate-900">
+                      {dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length} bays
+                      <span className="text-xs font-semibold text-emerald-600 ml-2">
+                        ({dashboardData?.stats?.carSlots?.available ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER' && s.status === 'AVAILABLE').length} free)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 bg-purple-50/70 border border-purple-100 px-4 py-2.5 rounded-xl">
+                  <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                    🛵
+                  </div>
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Two-Wheeler Spaces</div>
+                    <div className="text-base font-black text-slate-900">
+                      {dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length} bays
+                      <span className="text-xs font-semibold text-emerald-600 ml-2">
+                        ({dashboardData?.stats?.twoWheelerSlots?.available ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER' && s.status === 'AVAILABLE').length} free)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setTargetCarSlots(dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length);
+                  setTargetBikeSlots(dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length);
+                  setIsCapacityModalOpen(true);
+                }}
+                className="py-2.5 px-4 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition-colors flex items-center gap-1.5 self-stretch md:self-auto justify-center"
+              >
+                <span>Adjust Capacity Numbers</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
             {/* Two-Column Layout (Parking Map + Detail Drawer) */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Left Column: Parking Map Grid */}
               <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-sm space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h2 className="text-base font-bold text-slate-900">Parking map</h2>
-                  <span className="text-xs text-slate-500">20 designated bays</span>
+                  <span className="text-xs text-slate-500 font-medium">
+                    {parkingSlots.length} designated bays ({parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length} Car • {parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length} Two-Wheeler)
+                  </span>
                 </div>
 
                 {/* Slots Grid */}
@@ -623,6 +1057,8 @@ export default function AdminDashboard() {
                       statusLabel = 'Blocked';
                     }
 
+                    const typeBadge = slot.parkingType === 'TWO_WHEELER' ? '2W' : 'Car';
+
                     return (
                       <div
                         key={slot.id}
@@ -635,7 +1071,12 @@ export default function AdminDashboard() {
                       >
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-base font-black text-slate-900">{slot.slotNumber}</span>
-                          <span className={`w-2.5 h-2.5 rounded-full ${dotColor}`}></span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${slot.parkingType === 'TWO_WHEELER' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {typeBadge}
+                            </span>
+                            <span className={`w-2.5 h-2.5 rounded-full ${dotColor}`}></span>
+                          </div>
                         </div>
                         <div className="text-xs font-semibold text-slate-600">{statusLabel}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5 truncate font-mono">
@@ -647,7 +1088,7 @@ export default function AdminDashboard() {
                 </div>
 
                 {/* Legend */}
-                <div className="flex items-center gap-4 text-xs text-slate-600 pt-3 border-t border-slate-100">
+                <div className="flex items-center gap-4 text-xs text-slate-600 pt-3 border-t border-slate-100 flex-wrap">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
                     <span>Available</span>
@@ -674,7 +1115,12 @@ export default function AdminDashboard() {
                     <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                       <div>
                         <div className="text-xs text-slate-400 font-semibold uppercase">Slot Details</div>
-                        <h3 className="text-xl font-black text-slate-900">{selectedSlot.slotNumber}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-xl font-black text-slate-900">{selectedSlot.slotNumber}</h3>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${selectedSlot.parkingType === 'TWO_WHEELER' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {selectedSlot.parkingType === 'TWO_WHEELER' ? 'Two-Wheeler' : 'Car'}
+                          </span>
+                        </div>
                       </div>
                       <span
                         className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${
@@ -756,18 +1202,48 @@ export default function AdminDashboard() {
                       <div className="py-6 text-center text-slate-400 text-xs space-y-1">
                         <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto opacity-70" />
                         <p className="font-semibold text-slate-700">Slot is currently free</p>
-                        <p className="text-[11px] text-slate-400">Zone: {selectedSlot.zone || 'General'}</p>
+                        <p className="text-[11px] text-slate-400">Zone: {selectedSlot.zone || 'General'} • Floor: {selectedSlot.floor || 'G'}</p>
                       </div>
                     )}
 
-                    {/* Block / Unblock Button */}
-                    <div className="pt-3 border-t border-slate-100">
+                    {/* Change Vehicle Type Selector */}
+                    <div className="pt-3 border-t border-slate-100 space-y-1.5">
+                      <label className="block text-[11px] font-semibold text-slate-700">
+                        Designated Space Type:
+                      </label>
+                      <select
+                        value={selectedSlot.parkingType || 'CAR'}
+                        onChange={(e) => handleChangeSlotType(selectedSlot.id, e.target.value)}
+                        disabled={actionLoading || selectedSlot.status === 'OCCUPIED'}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+                      >
+                        <option value="CAR">Car</option>
+                        <option value="SUV">SUV</option>
+                        <option value="TWO_WHEELER">Two-Wheeler</option>
+                      </select>
+                      {selectedSlot.status === 'OCCUPIED' && (
+                        <p className="text-[10px] text-slate-400">Cannot change vehicle type while occupied.</p>
+                      )}
+                    </div>
+
+                    {/* Block / Unblock and Delete Buttons */}
+                    <div className="pt-3 border-t border-slate-100 space-y-2">
                       <button
                         onClick={() => handleToggleBlockSlot(selectedSlot.id, selectedSlot.isActive)}
                         className="w-full py-2 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs transition-colors"
                       >
                         {selectedSlot.isActive ? 'Block Slot for Maintenance' : 'Unblock Slot'}
                       </button>
+
+                      {selectedSlot.status !== 'OCCUPIED' && selectedSlot.status !== 'RESERVED' && (
+                        <button
+                          onClick={() => handleDeleteSlot(selectedSlot)}
+                          disabled={actionLoading}
+                          className="w-full py-2 px-4 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold text-xs transition-colors"
+                        >
+                          Delete Space
+                        </button>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -902,75 +1378,373 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* SCREEN SETTINGS */}
-        {activeTab === 'settings' && (
-          <div className="max-w-2xl bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 sm:p-8 space-y-5 animate-in fade-in duration-200">
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">Society Settings & Rules</h2>
-              <p className="text-xs text-slate-500">Configure parking time limits, society information, and gate policies.</p>
+        {/* SCREEN GUARDS SETTINGS */}
+        {activeTab === 'guards' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Guard Settings</h1>
+                <p className="text-xs text-slate-500">Manage security personnel, contact information, credentials, and gate duty access.</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsAddGuardOpen(true)}
+                  className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-blue-500/20"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Add New Guard</span>
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleSaveConfig} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Society Name
-                </label>
+            {/* Quick Filter Bar */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                 <input
                   type="text"
-                  value={configName}
-                  onChange={(e) => setConfigName(e.target.value)}
-                  required
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={guardSearch}
+                  onChange={(e) => setGuardSearch(e.target.value)}
+                  placeholder="Search guard by name or phone..."
+                  className="w-full pl-10 pr-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadUsers}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 text-xs font-semibold"
+                  title="Refresh guards"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Guards Table */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+              {loadingUsers ? (
+                <div className="py-12 text-center text-slate-400 text-xs">Loading guard accounts...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="p-3.5">Guard Personnel</th>
+                        <th className="p-3.5">Phone Number</th>
+                        <th className="p-3.5">Email Address</th>
+                        <th className="p-3.5">Duty Status</th>
+                        <th className="p-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {usersList
+                        .filter((u) => u.role === 'GUARD')
+                        .filter((u) =>
+                          guardSearch
+                            ? u.name.toLowerCase().includes(guardSearch.toLowerCase()) ||
+                              u.phone.includes(guardSearch)
+                            : true
+                        )
+                        .map((guard) => (
+                          <tr key={guard.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3.5">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                                  {guard.name.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-900">{guard.name}</div>
+                                  <div className="text-[10px] text-slate-400">Security Guard</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3.5 font-mono font-semibold text-slate-800">
+                              {guard.phone}
+                            </td>
+                            <td className="p-3.5 text-slate-600">
+                              {guard.email || <span className="text-slate-400 italic">Not set</span>}
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                                  guard.isActive !== false
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                {guard.isActive !== false ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-right space-x-2">
+                              <button
+                                onClick={() => openEditGuard(guard)}
+                                className="py-1 px-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-[11px] transition-colors"
+                              >
+                                Edit Settings
+                              </button>
+                              <button
+                                onClick={() => handleToggleUserActive(guard)}
+                                className={`py-1 px-2.5 rounded-lg border font-semibold text-[11px] transition-colors ${
+                                  guard.isActive !== false
+                                    ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                                    : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                }`}
+                              >
+                                {guard.isActive !== false ? 'Deactivate' : 'Activate'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  {usersList.filter((u) => u.role === 'GUARD').length === 0 && (
+                    <div className="py-12 text-center text-slate-400 text-xs">No guards found in this society.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SCREEN RESIDENTS SETTINGS */}
+        {activeTab === 'residents' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Society Address
-                </label>
-                <textarea
-                  value={configAddress}
-                  onChange={(e) => setConfigAddress(e.target.value)}
-                  rows={2}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <h1 className="text-2xl font-black text-slate-900 tracking-tight">Resident Settings</h1>
+                <p className="text-xs text-slate-500">Manage resident directory, flat assignments, phone contacts, and access permissions.</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsAddResidentOpen(true)}
+                  className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm shadow-blue-500/20"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Add New Resident</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Filter Bar */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={residentSearch}
+                  onChange={(e) => setResidentSearch(e.target.value)}
+                  placeholder="Search resident by name, phone, or flat..."
+                  className="w-full pl-10 pr-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    loadUsers();
+                    loadFlats();
+                  }}
+                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 flex items-center gap-1.5 text-xs font-semibold"
+                  title="Refresh residents"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Refresh</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Residents Table */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+              {loadingUsers ? (
+                <div className="py-12 text-center text-slate-400 text-xs">Loading residents directory...</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="p-3.5">Resident</th>
+                        <th className="p-3.5">Flat & Tower</th>
+                        <th className="p-3.5">Phone Number</th>
+                        <th className="p-3.5">Email Address</th>
+                        <th className="p-3.5">Status</th>
+                        <th className="p-3.5 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {usersList
+                        .filter((u) => u.role === 'RESIDENT')
+                        .filter((u) => {
+                          if (!residentSearch) return true;
+                          const q = residentSearch.toLowerCase();
+                          return (
+                            u.name.toLowerCase().includes(q) ||
+                            u.phone.includes(q) ||
+                            (u.flatNumber && u.flatNumber.toLowerCase().includes(q)) ||
+                            (u.towerName && u.towerName.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((res) => (
+                          <tr key={res.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="p-3.5">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
+                                  {res.name.slice(0, 2).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-slate-900">{res.name}</div>
+                                  <div className="text-[10px] text-slate-400">Society Resident</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3.5">
+                              {res.flatNumber ? (
+                                <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded text-[11px]">
+                                  {res.towerName} {res.flatNumber}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 italic">Unassigned</span>
+                              )}
+                            </td>
+                            <td className="p-3.5 font-mono font-semibold text-slate-800">
+                              {res.phone}
+                            </td>
+                            <td className="p-3.5 text-slate-600">
+                              {res.email || <span className="text-slate-400 italic">Not set</span>}
+                            </td>
+                            <td className="p-3.5">
+                              <span
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                                  res.isActive !== false
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-slate-100 text-slate-600'
+                                }`}
+                              >
+                                {res.isActive !== false ? 'Active' : 'Inactive'}
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-right space-x-2">
+                              <button
+                                onClick={() => openEditResident(res)}
+                                className="py-1 px-3 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-[11px] transition-colors"
+                              >
+                                Edit Settings
+                              </button>
+                              <button
+                                onClick={() => handleToggleUserActive(res)}
+                                className={`py-1 px-2.5 rounded-lg border font-semibold text-[11px] transition-colors ${
+                                  res.isActive !== false
+                                    ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+                                    : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                                }`}
+                              >
+                                {res.isActive !== false ? 'Deactivate' : 'Activate'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                  {usersList.filter((u) => u.role === 'RESIDENT').length === 0 && (
+                    <div className="py-12 text-center text-slate-400 text-xs">No residents found in this society.</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SCREEN SETTINGS - ONLY SOCIETY NAME & ADDRESS CAN BE CHANGED */}
+        {activeTab === 'settings' && (
+          <div className="space-y-6 animate-in fade-in duration-200 max-w-2xl">
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 sm:p-8 space-y-6">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Max Visitor Parking Duration (Hours)
-                </label>
-                <input
-                  type="number"
-                  value={configMaxDuration}
-                  onChange={(e) => setConfigMaxDuration(Number(e.target.value))}
-                  min={1}
-                  max={72}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <h2 className="text-xl font-bold text-slate-900">Society Settings</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Modify the registered society name and physical address. (Security staff and resident profiles are configured under their respective Guard and Resident Settings sections).
+                </p>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="approvalCheck"
-                  checked={configApproval}
-                  onChange={(e) => setConfigApproval(e.target.checked)}
-                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="approvalCheck" className="text-xs font-medium text-slate-700">
-                  Require resident verification for walk-in arrivals
-                </label>
-              </div>
+              <form onSubmit={handleSaveConfig} className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Society Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={configName}
+                    onChange={(e) => setConfigName(e.target.value)}
+                    required
+                    placeholder="e.g. Whispering Palms CHS"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">This name appears on all passes, receipts, and guard entry portals.</p>
+                </div>
 
-              <button
-                type="submit"
-                disabled={savingConfig}
-                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-sm"
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Society Address *
+                  </label>
+                  <textarea
+                    value={configAddress}
+                    onChange={(e) => setConfigAddress(e.target.value)}
+                    required
+                    rows={3}
+                    placeholder="Enter full physical address..."
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  />
+                  <p className="text-[11px] text-slate-400 mt-1">Physical address used for visitor navigation and gate directions.</p>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={savingConfig}
+                    className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-sm disabled:opacity-60"
+                  >
+                    {savingConfig ? 'Saving...' : 'Save Society Details'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Quick Link Cards to Guard and Resident Settings */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div
+                onClick={() => setActiveTab('guards')}
+                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-300 transition-all cursor-pointer group"
               >
-                {savingConfig ? 'Saving...' : 'Save Configuration'}
-              </button>
-            </form>
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-sm">Guard Settings</h3>
+                <p className="text-xs text-slate-500 mt-1">Configure security personnel, contact numbers, and gate credentials.</p>
+                <div className="mt-3 flex items-center text-xs font-bold text-blue-600 group-hover:translate-x-1 transition-transform">
+                  <span>Manage Guards</span>
+                  <ChevronRight className="w-4 h-4 ml-0.5" />
+                </div>
+              </div>
+
+              <div
+                onClick={() => setActiveTab('residents')}
+                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-purple-300 transition-all cursor-pointer group"
+              >
+                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <h3 className="font-bold text-slate-900 text-sm">Resident Settings</h3>
+                <p className="text-xs text-slate-500 mt-1">Configure apartment residents, tower numbers, and resident portal access.</p>
+                <div className="mt-3 flex items-center text-xs font-bold text-purple-600 group-hover:translate-x-1 transition-transform">
+                  <span>Manage Residents</span>
+                  <ChevronRight className="w-4 h-4 ml-0.5" />
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1058,6 +1832,563 @@ export default function AdminDashboard() {
                   type="button"
                   onClick={() => setIsAddSlotOpen(false)}
                   className="py-2 px-4 rounded-xl border border-slate-200 text-slate-700"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODIFY CAPACITY MODAL */}
+      {isCapacityModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Modify Parking Spaces</h3>
+                <p className="text-xs text-slate-500">Configure total number of car and two-wheeler bays.</p>
+              </div>
+              <button
+                onClick={() => setIsCapacityModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateCapacity} className="space-y-4 text-xs">
+              {/* Car Parking Spaces Field */}
+              <div className="p-4 rounded-2xl bg-blue-50/50 border border-blue-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🚗</span>
+                    <label className="font-bold text-slate-900">Car Parking Spaces</label>
+                  </div>
+                  <span className="text-[11px] font-semibold text-blue-600">
+                    Currently: {parkingSlots.filter((s) => s.parkingType !== 'TWO_WHEELER').length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTargetCarSlots((prev) => Math.max(0, prev - 1))}
+                    className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-800 font-black text-lg flex items-center justify-center hover:bg-slate-100 transition-colors"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    max="500"
+                    value={targetCarSlots}
+                    onChange={(e) => setTargetCarSlots(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="flex-1 py-2 px-3 text-center text-lg font-black text-slate-900 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTargetCarSlots((prev) => prev + 1)}
+                    className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-800 font-black text-lg flex items-center justify-center hover:bg-slate-100 transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Includes Standard & SUV bays. Reducing capacity will remove unreserved bays.
+                </p>
+              </div>
+
+              {/* Two Wheeler Spaces Field */}
+              <div className="p-4 rounded-2xl bg-purple-50/50 border border-purple-100 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🛵</span>
+                    <label className="font-bold text-slate-900">Two-Wheeler Parking Spaces</label>
+                  </div>
+                  <span className="text-[11px] font-semibold text-purple-600">
+                    Currently: {parkingSlots.filter((s) => s.parkingType === 'TWO_WHEELER').length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTargetBikeSlots((prev) => Math.max(0, prev - 1))}
+                    className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-800 font-black text-lg flex items-center justify-center hover:bg-slate-100 transition-colors"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    max="500"
+                    value={targetBikeSlots}
+                    onChange={(e) => setTargetBikeSlots(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="flex-1 py-2 px-3 text-center text-lg font-black text-slate-900 bg-white rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTargetBikeSlots((prev) => prev + 1)}
+                    className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-800 font-black text-lg flex items-center justify-center hover:bg-slate-100 transition-colors"
+                  >
+                    +
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Dedicated scooter and motorcycle bays for visitors.
+                </p>
+              </div>
+
+              {/* Summary */}
+              <div className="flex items-center justify-between px-2 text-slate-600">
+                <span className="font-semibold">New Total Spaces:</span>
+                <span className="text-base font-black text-slate-900">
+                  {Number(targetCarSlots) + Number(targetBikeSlots)} Bays
+                </span>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={savingCapacity}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {savingCapacity ? 'Updating Spaces...' : 'Apply Space Changes'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCapacityModalOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT GUARD SETTINGS MODAL */}
+      {isEditGuardOpen && selectedGuard && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Guard Settings</h3>
+                  <p className="text-xs text-slate-500">Update security staff profile and duty status.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditGuardOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveGuard} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={editGuardName}
+                  onChange={(e) => setEditGuardName(e.target.value)}
+                  required
+                  placeholder="e.g. Rajesh Kumar"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Phone Number (Login ID) *</label>
+                <input
+                  type="text"
+                  value={editGuardPhone}
+                  onChange={(e) => setEditGuardPhone(e.target.value)}
+                  required
+                  placeholder="e.g. +919876543220"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editGuardEmail}
+                  onChange={(e) => setEditGuardEmail(e.target.value)}
+                  placeholder="e.g. guard@society.com (optional)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div>
+                  <div className="font-bold text-slate-800">Duty / Access Status</div>
+                  <div className="text-[11px] text-slate-500">Allow guard to log into guard terminal</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditGuardIsActive(!editGuardIsActive)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    editGuardIsActive ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700'
+                  }`}
+                >
+                  {editGuardIsActive ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Reset Password <span className="font-normal text-slate-400">(leave blank to keep current)</span>
+                </label>
+                <input
+                  type="password"
+                  value={editGuardPassword}
+                  onChange={(e) => setEditGuardPassword(e.target.value)}
+                  placeholder="New password (min 6 characters)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={savingGuard}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {savingGuard ? 'Saving...' : 'Save Guard Settings'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditGuardOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD NEW GUARD MODAL */}
+      {isAddGuardOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Add New Guard</h3>
+                  <p className="text-xs text-slate-500">Register a new security staff member.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddGuardOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateGuard} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={newGuardName}
+                  onChange={(e) => setNewGuardName(e.target.value)}
+                  required
+                  placeholder="e.g. Ramesh Patil"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Phone Number (Login Identifier) *</label>
+                <input
+                  type="text"
+                  value={newGuardPhone}
+                  onChange={(e) => setNewGuardPhone(e.target.value)}
+                  required
+                  placeholder="e.g. +919876543225"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={newGuardEmail}
+                  onChange={(e) => setNewGuardEmail(e.target.value)}
+                  placeholder="e.g. guard@society.com (optional)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Default Password *</label>
+                <input
+                  type="password"
+                  value={newGuardPassword}
+                  onChange={(e) => setNewGuardPassword(e.target.value)}
+                  required
+                  placeholder="Password (min 6 characters)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={savingGuard}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {savingGuard ? 'Creating...' : 'Register Guard'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddGuardOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT RESIDENT SETTINGS MODAL */}
+      {isEditResidentOpen && selectedResident && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Resident Settings</h3>
+                  <p className="text-xs text-slate-500">Update apartment owner details and flat allotment.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditResidentOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveResident} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={editResidentName}
+                  onChange={(e) => setEditResidentName(e.target.value)}
+                  required
+                  placeholder="e.g. Siddhant Bhatnagar"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Flat Assignment</label>
+                <select
+                  value={editResidentFlatId}
+                  onChange={(e) => setEditResidentFlatId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Select Flat...</option>
+                  {flatsList.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.tower?.name} - Flat {f.flatNumber}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Phone Number (Login ID) *</label>
+                <input
+                  type="text"
+                  value={editResidentPhone}
+                  onChange={(e) => setEditResidentPhone(e.target.value)}
+                  required
+                  placeholder="e.g. +919876543210"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editResidentEmail}
+                  onChange={(e) => setEditResidentEmail(e.target.value)}
+                  placeholder="e.g. resident@email.com (optional)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div>
+                  <div className="font-bold text-slate-800">Account Status</div>
+                  <div className="text-[11px] text-slate-500">Allow resident to generate visitor passes</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditResidentIsActive(!editResidentIsActive)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    editResidentIsActive ? 'bg-emerald-600 text-white' : 'bg-slate-300 text-slate-700'
+                  }`}
+                >
+                  {editResidentIsActive ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Reset Password <span className="font-normal text-slate-400">(leave blank to keep current)</span>
+                </label>
+                <input
+                  type="password"
+                  value={editResidentPassword}
+                  onChange={(e) => setEditResidentPassword(e.target.value)}
+                  placeholder="New password (min 6 characters)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={savingResident}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {savingResident ? 'Saving...' : 'Save Resident Settings'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditResidentOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADD NEW RESIDENT MODAL */}
+      {isAddResidentOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Add New Resident</h3>
+                  <p className="text-xs text-slate-500">Register a new resident with flat assignment.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddResidentOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateResident} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={newResidentName}
+                  onChange={(e) => setNewResidentName(e.target.value)}
+                  required
+                  placeholder="e.g. Priya Sharma"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Flat Assignment</label>
+                <select
+                  value={newResidentFlatId}
+                  onChange={(e) => setNewResidentFlatId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="">Select Flat...</option>
+                  {flatsList.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.tower?.name} - Flat {f.flatNumber}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Phone Number (Login ID) *</label>
+                <input
+                  type="text"
+                  value={newResidentPhone}
+                  onChange={(e) => setNewResidentPhone(e.target.value)}
+                  required
+                  placeholder="e.g. +919876543299"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={newResidentEmail}
+                  onChange={(e) => setNewResidentEmail(e.target.value)}
+                  placeholder="e.g. priya@example.com (optional)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Default Password *</label>
+                <input
+                  type="password"
+                  value={newResidentPassword}
+                  onChange={(e) => setNewResidentPassword(e.target.value)}
+                  required
+                  placeholder="Password (min 6 characters)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="submit"
+                  disabled={savingResident}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {savingResident ? 'Creating...' : 'Register Resident'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsAddResidentOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-700 font-semibold hover:bg-slate-50"
                 >
                   Cancel
                 </button>
