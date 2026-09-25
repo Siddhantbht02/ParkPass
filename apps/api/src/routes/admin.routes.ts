@@ -107,6 +107,13 @@ export async function adminRoutes(fastify: FastifyInstance) {
         orderBy: { createdAt: 'desc' },
         take: 8,
       }),
+      prisma.user.count({
+        where: { societyId: user.societyId, approvalStatus: 'PENDING' } as any,
+      }),
+      prisma.society.findUnique({
+        where: { id: user.societyId },
+        select: { code: true },
+      }),
     ]);
 
     const totalSlots = allSocietySlots.length;
@@ -128,6 +135,12 @@ export async function adminRoutes(fastify: FastifyInstance) {
     const occupiedCount = activeSessions.length;
     const availableCount = Math.max(0, totalSlots - occupiedCount - blockedSlots);
 
+    // Get pending approvals and society info safely
+    const [pendingCountVal, societyData] = await Promise.all([
+      prisma.user.count({ where: { societyId: user.societyId, approvalStatus: 'PENDING' } as any }),
+      prisma.society.findUnique({ where: { id: user.societyId }, select: { code: true } }),
+    ]);
+
     return reply.send({
       stats: {
         totalFlats: flatsCount,
@@ -139,6 +152,8 @@ export async function adminRoutes(fastify: FastifyInstance) {
         todayEntries,
         todayExits,
         overstayCount,
+        pendingApprovals: pendingCountVal,
+        societyCode: societyData?.code || 'SKYLINE-101',
         carSlots: {
           total: carTotal,
           occupied: carOccupied,
@@ -689,10 +704,20 @@ export async function adminRoutes(fastify: FastifyInstance) {
       return reply.status(404).send({ error: 'Society not found' });
     }
 
+    let societyCode = (society as any).code;
+    if (!societyCode) {
+      societyCode = 'SKYLINE-101';
+      await prisma.society.update({
+        where: { id: society.id },
+        data: { code: societyCode } as any,
+      });
+    }
+
     return reply.send({
       society: {
         id: society.id,
         name: society.name,
+        code: societyCode,
         address: society.address,
         timezone: society.timezone,
         configuration: JSON.parse(society.configuration || '{}'),
@@ -786,6 +811,7 @@ export async function adminRoutes(fastify: FastifyInstance) {
         email: u.email,
         role: u.role,
         isActive: u.isActive,
+        approvalStatus: (u as any).approvalStatus || 'APPROVED',
         flatId: u.flatId,
         flatNumber: u.flat?.flatNumber,
         towerName: u.flat?.tower?.name,
@@ -979,5 +1005,112 @@ export async function adminRoutes(fastify: FastifyInstance) {
     });
 
     return reply.send({ flats });
+  });
+
+  // GET /pending-approvals - list residents & guards waiting for admin approval
+  fastify.get('/pending-approvals', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const pendingUsers = await prisma.user.findMany({
+      where: {
+        societyId: user.societyId,
+        approvalStatus: 'PENDING',
+      } as any,
+      include: {
+        flat: { include: { tower: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return reply.send({
+      pending: pendingUsers.map((u) => ({
+        id: u.id,
+        name: u.name,
+        phone: u.phone,
+        email: u.email,
+        role: u.role,
+        flatId: u.flatId,
+        flatNumber: u.flat?.flatNumber,
+        towerName: u.flat?.tower?.name,
+        approvalStatus: (u as any).approvalStatus,
+        createdAt: u.createdAt,
+      })),
+    });
+  });
+
+  // POST /approve-user/:id - approve a resident or guard registration
+  fastify.post('/approve-user/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const { id } = request.params as any;
+
+    const targetUser = await prisma.user.findFirst({
+      where: { id, societyId: user.societyId },
+      include: { flat: { include: { tower: true } } },
+    });
+
+    if (!targetUser) {
+      return reply.status(404).send({ error: 'Registration request not found' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        approvalStatus: 'APPROVED',
+        isActive: true,
+      } as any,
+    });
+
+    await AuditService.log({
+      societyId: user.societyId,
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'USER_APPROVED',
+      entityType: 'USER',
+      entityId: targetUser.id,
+      metadata: { role: targetUser.role, name: targetUser.name, phone: targetUser.phone },
+    });
+
+    return reply.send({
+      message: `${targetUser.name} (${targetUser.role}) has been approved and can now access ParkPass.`,
+      user: updated,
+    });
+  });
+
+  // POST /reject-user/:id - reject a resident or guard registration
+  fastify.post('/reject-user/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const { id } = request.params as any;
+
+    const targetUser = await prisma.user.findFirst({
+      where: { id, societyId: user.societyId },
+    });
+
+    if (!targetUser) {
+      return reply.status(404).send({ error: 'Registration request not found' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: {
+        approvalStatus: 'REJECTED',
+        isActive: false,
+      } as any,
+    });
+
+    await AuditService.log({
+      societyId: user.societyId,
+      actorId: user.id,
+      actorName: user.name,
+      actorRole: user.role,
+      action: 'USER_REJECTED',
+      entityType: 'USER',
+      entityId: targetUser.id,
+      metadata: { role: targetUser.role, name: targetUser.name },
+    });
+
+    return reply.send({
+      message: `${targetUser.name}'s registration request has been rejected.`,
+      user: updated,
+    });
   });
 }

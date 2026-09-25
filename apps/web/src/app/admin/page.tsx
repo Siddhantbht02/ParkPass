@@ -36,6 +36,8 @@ import {
   Key,
   Mail,
   Shield,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -127,6 +129,12 @@ export default function AdminDashboard() {
   const [configName, setConfigName] = useState('');
   const [configAddress, setConfigAddress] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+
+  // Pending Registrations State (Resident & Guard Approvals)
+  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [actionProcessingId, setActionProcessingId] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   useEffect(() => {
     if (!isLoading && (!user || user.role !== 'ADMIN')) {
@@ -233,12 +241,59 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadPending = async () => {
+    try {
+      setLoadingPending(true);
+      const data = await fetchApi('/api/v1/admin/pending-approvals');
+      setPendingUsers(data.pending || []);
+    } catch (err) {
+      console.error('Failed to load pending approvals:', err);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
+  const handleApproveUser = async (userId: string) => {
+    setActionProcessingId(userId);
+    try {
+      const res = await fetchApi(`/api/v1/admin/approve-user/${userId}`, { method: 'POST' });
+      alert(res.message || 'User registration approved successfully!');
+      await Promise.all([loadPending(), loadUsers(), loadDashboard()]);
+    } catch (err: any) {
+      alert(`Approval failed: ${err.message}`);
+    } finally {
+      setActionProcessingId(null);
+    }
+  };
+
+  const handleRejectUser = async (userId: string) => {
+    if (!confirm('Are you sure you want to reject this registration request?')) return;
+    setActionProcessingId(userId);
+    try {
+      const res = await fetchApi(`/api/v1/admin/reject-user/${userId}`, { method: 'POST' });
+      alert(res.message || 'Registration request rejected.');
+      await Promise.all([loadPending(), loadUsers(), loadDashboard()]);
+    } catch (err: any) {
+      alert(`Rejection failed: ${err.message}`);
+    } finally {
+      setActionProcessingId(null);
+    }
+  };
+
+  const copySocietyCode = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
   useEffect(() => {
     if (user && user.role === 'ADMIN') {
       loadDashboard();
       loadSlots();
       loadUsers();
       loadFlats();
+      loadPending();
+      loadConfig();
     }
   }, [user]);
 
@@ -246,6 +301,7 @@ export default function AdminDashboard() {
     if (activeTab === 'overview') {
       loadDashboard();
       loadSlots();
+      loadPending();
     } else if (activeTab === 'parking') {
       loadSlots();
       loadDashboard();
@@ -253,9 +309,11 @@ export default function AdminDashboard() {
       loadRecords();
     } else if (activeTab === 'guards') {
       loadUsers();
+      loadPending();
     } else if (activeTab === 'residents') {
       loadUsers();
       loadFlats();
+      loadPending();
     } else if (activeTab === 'audit') {
       loadAudit();
     } else if (activeTab === 'settings') {
@@ -638,26 +696,40 @@ export default function AdminDashboard() {
 
             <button
               onClick={() => setActiveTab('guards')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'guards'
                   ? 'bg-blue-50 text-blue-700'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Guard Settings</span>
+              <div className="flex items-center gap-3">
+                <ShieldCheck className="w-4 h-4" />
+                <span>Guard Settings</span>
+              </div>
+              {pendingUsers.filter((u) => u.role === 'GUARD').length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-xs">
+                  {pendingUsers.filter((u) => u.role === 'GUARD').length}
+                </span>
+              )}
             </button>
 
             <button
               onClick={() => setActiveTab('residents')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                 activeTab === 'residents'
                   ? 'bg-blue-50 text-blue-700'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              <Building2 className="w-4 h-4" />
-              <span>Resident Settings</span>
+              <div className="flex items-center gap-3">
+                <Building2 className="w-4 h-4" />
+                <span>Resident Settings</span>
+              </div>
+              {pendingUsers.filter((u) => u.role === 'RESIDENT').length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white font-bold text-[10px] shadow-xs">
+                  {pendingUsers.filter((u) => u.role === 'RESIDENT').length}
+                </span>
+              )}
             </button>
 
             <button
@@ -720,7 +792,23 @@ export default function AdminDashboard() {
                 <h1 className="text-2xl font-black text-slate-900 tracking-tight">Society Overview</h1>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Society Unique Code Pill */}
+                <div className="px-3.5 py-1.5 rounded-xl bg-blue-50/80 border border-blue-200/80 text-xs font-semibold text-blue-900 flex items-center gap-2 shadow-xs">
+                  <Key className="w-3.5 h-3.5 text-blue-600" />
+                  <span className="text-[11px] text-blue-700 font-medium">Society Code:</span>
+                  <span className="font-mono font-black text-slate-900 bg-white px-2 py-0.5 rounded-md border border-blue-200">
+                    {dashboardData?.societyCode || societyInfo?.code || 'SKYLINE-101'}
+                  </span>
+                  <button
+                    onClick={() => copySocietyCode(dashboardData?.societyCode || societyInfo?.code || 'SKYLINE-101')}
+                    className="p-1 rounded hover:bg-blue-100 text-blue-700 transition-colors"
+                    title="Copy unique code to share with residents and guards"
+                  >
+                    {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+
                 <div className="px-3.5 py-1.5 rounded-xl bg-white border border-slate-200 text-xs font-semibold text-slate-700 flex items-center gap-2 shadow-sm">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>Today: {new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}</span>
@@ -1387,6 +1475,101 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {/* PENDING GUARD APPROVALS SECTION */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span>Pending Guard Registration Requests</span>
+                      {pendingUsers.filter((u) => u.role === 'GUARD').length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
+                          {pendingUsers.filter((u) => u.role === 'GUARD').length} Pending
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-slate-500">Security personnel who signed up using Society Code and need approval before gate access.</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={loadPending}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500"
+                  title="Refresh pending requests"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingPending ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {pendingUsers.filter((u) => u.role === 'GUARD').length === 0 ? (
+                <div className="py-3 px-4 rounded-xl bg-slate-50 border border-slate-100 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span>All guard registrations are approved. No pending requests.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-amber-50/60 border-b border-amber-100 text-amber-900 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="p-3">Applicant Name</th>
+                        <th className="p-3">Mobile Phone</th>
+                        <th className="p-3">Email</th>
+                        <th className="p-3">Applied Date</th>
+                        <th className="p-3 text-right">Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendingUsers
+                        .filter((u) => u.role === 'GUARD')
+                        .map((g: any) => (
+                          <tr key={g.id} className="hover:bg-amber-50/30 transition-colors">
+                            <td className="p-3">
+                              <div className="font-bold text-slate-900">{g.name}</div>
+                              <div className="text-[10px] text-amber-700 font-medium">Awaiting Guard Clearance</div>
+                            </td>
+                            <td className="p-3 font-mono font-medium text-slate-800">{g.phone}</td>
+                            <td className="p-3 text-slate-500">{g.email || '—'}</td>
+                            <td className="p-3 text-slate-500">
+                              {g.createdAt
+                                ? new Date(g.createdAt).toLocaleDateString('en-IN', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'Recently'}
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleApproveUser(g.id)}
+                                  disabled={actionProcessingId === g.id}
+                                  className="py-1 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm disabled:opacity-50"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>{actionProcessingId === g.id ? 'Approving...' : 'Approve'}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleRejectUser(g.id)}
+                                  disabled={actionProcessingId === g.id}
+                                  className="py-1 px-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-bold text-xs flex items-center gap-1 disabled:opacity-50"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Reject</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             {/* Quick Filter Bar */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
               <div className="relative flex-1 max-w-sm">
@@ -1517,6 +1700,107 @@ export default function AdminDashboard() {
                   <span>Add New Resident</span>
                 </button>
               </div>
+            </div>
+
+            {/* PENDING RESIDENT APPROVALS SECTION */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                    <UserCheck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                      <span>Pending Resident Registration Requests</span>
+                      {pendingUsers.filter((u) => u.role === 'RESIDENT').length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black">
+                          {pendingUsers.filter((u) => u.role === 'RESIDENT').length} Pending
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-xs text-slate-500">Residents who registered using Society Code and need admin approval before booking visitor passes.</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={loadPending}
+                  className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500"
+                  title="Refresh pending requests"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingPending ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {pendingUsers.filter((u) => u.role === 'RESIDENT').length === 0 ? (
+                <div className="py-3 px-4 rounded-xl bg-slate-50 border border-slate-100 text-center text-xs text-slate-500 flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                  <span>All resident registrations are approved. No pending requests.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs text-slate-600">
+                    <thead className="bg-blue-50/60 border-b border-blue-100 text-blue-900 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="p-3">Resident Applicant</th>
+                        <th className="p-3">Claimed Flat / Tower</th>
+                        <th className="p-3">Mobile Phone</th>
+                        <th className="p-3">Email</th>
+                        <th className="p-3">Applied Date</th>
+                        <th className="p-3 text-right">Decision</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendingUsers
+                        .filter((u) => u.role === 'RESIDENT')
+                        .map((r: any) => (
+                          <tr key={r.id} className="hover:bg-blue-50/30 transition-colors">
+                            <td className="p-3">
+                              <div className="font-bold text-slate-900">{r.name}</div>
+                              <div className="text-[10px] text-blue-700 font-medium">New Resident Request</div>
+                            </td>
+                            <td className="p-3">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 font-bold text-slate-800 text-[11px] border border-slate-200">
+                                {r.towerName || 'Tower'} Flat {r.flatNumber || '—'}
+                              </span>
+                            </td>
+                            <td className="p-3 font-mono font-medium text-slate-800">{r.phone}</td>
+                            <td className="p-3 text-slate-500">{r.email || '—'}</td>
+                            <td className="p-3 text-slate-500">
+                              {r.createdAt
+                                ? new Date(r.createdAt).toLocaleDateString('en-IN', {
+                                    month: 'short',
+                                    day: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'Recently'}
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => handleApproveUser(r.id)}
+                                  disabled={actionProcessingId === r.id}
+                                  className="py-1 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 shadow-sm disabled:opacity-50"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>{actionProcessingId === r.id ? 'Approving...' : 'Approve'}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleRejectUser(r.id)}
+                                  disabled={actionProcessingId === r.id}
+                                  className="py-1 px-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 font-bold text-xs flex items-center gap-1 disabled:opacity-50"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Reject</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Quick Filter Bar */}
@@ -1656,6 +1940,29 @@ export default function AdminDashboard() {
                 <p className="text-xs text-slate-500 mt-1">
                   Modify the registered society name and physical address for this society.
                 </p>
+              </div>
+
+              {/* Society Unique Code Banner */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 block mb-0.5">
+                    Official Society Unique ID Code
+                  </span>
+                  <div className="text-2xl font-black font-mono text-slate-900 tracking-wider">
+                    {societyInfo?.code || dashboardData?.societyCode || 'SKYLINE-101'}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Share this unique code with residents and security guards so they can submit their join requests.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copySocietyCode(societyInfo?.code || dashboardData?.societyCode || 'SKYLINE-101')}
+                  className="px-3.5 py-2 rounded-xl bg-white border border-blue-300 text-xs font-bold text-blue-700 hover:bg-blue-50 flex items-center gap-1.5 shadow-xs transition-colors shrink-0"
+                >
+                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedCode ? 'Copied Code!' : 'Copy Code'}</span>
+                </button>
               </div>
 
               <form onSubmit={handleSaveConfig} className="space-y-5">

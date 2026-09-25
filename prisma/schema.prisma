@@ -9,6 +9,7 @@ generator client {
 
 model Society {
   id            String   @id @default(uuid())
+  code          String?  @unique
   name          String
   address       String
   timezone      String   @default("Asia/Kolkata")
@@ -59,17 +60,18 @@ model Flat {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  name         String
-  phone        String
-  email        String?
-  passwordHash String
-  role         String   // RESIDENT, GUARD, ADMIN
-  societyId    String
-  flatId       String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String   @id @default(uuid())
+  name           String
+  phone          String
+  email          String?
+  passwordHash   String
+  role           String   // RESIDENT, GUARD, ADMIN
+  societyId      String
+  flatId         String?
+  isActive       Boolean  @default(true)
+  approvalStatus String   @default("APPROVED") // "PENDING", "APPROVED", "REJECTED"
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   society      Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
   flat         Flat?    @relation(fields: [flatId], references: [id], onDelete: SetNull)

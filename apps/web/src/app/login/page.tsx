@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Car, Lock, Phone, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Car, Lock, Phone, ArrowRight, ShieldCheck, AlertCircle, UserPlus } from 'lucide-react';
 
 export default function LoginPage() {
   const { login, quickLogin, isLoading } = useAuth();
@@ -92,6 +93,17 @@ export default function LoginPage() {
               <span>{isSubmitting ? 'Authenticating...' : 'Sign In'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
+
+            <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
+              <span>New resident or guard?</span>
+              <Link
+                href="/register"
+                className="font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Join with Society Code</span>
+              </Link>
+            </div>
           </form>
 
           {/* Quick Demo Selector */}

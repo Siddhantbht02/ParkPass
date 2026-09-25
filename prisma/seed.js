@@ -25,6 +25,7 @@ async function main() {
   const society = await prisma.society.create({
     data: {
       name: 'Skyline Residency',
+      code: 'SKYLINE-101',
       address: 'Plot 42, Hiranandani Estate, Powai, Mumbai, Maharashtra 400076',
       timezone: 'Asia/Kolkata',
       configuration: JSON.stringify({
