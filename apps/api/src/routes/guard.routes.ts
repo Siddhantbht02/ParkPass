@@ -613,7 +613,7 @@ export async function guardRoutes(fastify: FastifyInstance) {
       });
 
       return newSession;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return reply.send({
       success: true,
@@ -744,7 +744,7 @@ export async function guardRoutes(fastify: FastifyInstance) {
       });
 
       return newSession;
-    });
+    }, { maxWait: 15000, timeout: 30000 });
 
     return reply.status(201).send({
       message: `Walk-in visitor registered and assigned to slot ${slot.slotNumber}.`,
