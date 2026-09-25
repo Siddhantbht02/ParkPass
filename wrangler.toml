@@ -1,0 +1,6 @@
+name = "parkpass"
+compatibility_date = "2024-09-25"
+
+[assets]
+directory = "./apps/web/out"
+not_found_handling = "single-page-application"
