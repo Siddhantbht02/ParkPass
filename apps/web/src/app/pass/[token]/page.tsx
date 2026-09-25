@@ -226,95 +226,201 @@ ${window.location.href}`;
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'SCHEDULED':
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">SCHEDULED</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/20 text-white border border-white/30 backdrop-blur-md">
+            SCHEDULED
+          </span>
+        );
       case 'CHECKED_IN':
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">PARKED / CHECKED IN</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 backdrop-blur-md">
+            PARKED / CHECKED IN
+          </span>
+        );
       case 'CHECKED_OUT':
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-700">COMPLETED</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/10 text-white/70 border border-white/20 backdrop-blur-md">
+            COMPLETED
+          </span>
+        );
       case 'CANCELLED':
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">CANCELLED</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-red-500/25 text-red-300 border border-red-400/40 backdrop-blur-md">
+            CANCELLED
+          </span>
+        );
       case 'EXPIRED':
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">EXPIRED</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500/25 text-amber-300 border border-amber-400/40 backdrop-blur-md">
+            EXPIRED
+          </span>
+        );
       default:
-        return <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-800">{status}</span>;
+        return (
+          <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/10 text-white border border-white/20">
+            {status}
+          </span>
+        );
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 py-6 px-4 sm:px-6 flex flex-col items-center justify-center">
-      {/* Top Banner */}
-      <div className="w-full max-w-sm mb-4 flex items-center justify-between text-xs text-slate-500">
-        <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-          <Car className="w-4 h-4 text-blue-600" />
-          <span>ParkPass Digital Ticket</span>
+    <div className="min-h-screen ambient-glow py-8 px-4 sm:px-6 flex flex-col items-center justify-center text-white">
+      {/* Top Wallet Header */}
+      <div className="w-full max-w-sm mb-4 flex items-center justify-between text-xs">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-xl liquid-pill flex items-center justify-center">
+            <Car className="w-4 h-4 text-blue-400" />
+          </div>
+          <span className="font-extrabold tracking-tight text-white/90 text-sm">ParkPass Wallet</span>
         </div>
-        <div className="text-[11px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">{pass.passCode}</div>
+        <div className="px-2.5 py-1 rounded-xl liquid-pill font-mono font-bold text-[11px] text-blue-300">
+          {pass.passCode}
+        </div>
       </div>
 
-      {/* Access Ticket Card */}
+      {/* APPLE WALLET BOARDING PASS CARD (Southwest Airlines Inspired) */}
       <div
         ref={ticketRef}
-        className="w-full max-w-sm bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden"
+        className="w-full max-w-sm bg-gradient-to-b from-[#1447db] via-[#103bb2] to-[#0c2e8c] rounded-[2.2rem] shadow-[0_25px_60px_-15px_rgba(16,66,199,0.5),_inset_0_1px_1px_rgba(255,255,255,0.4)] border border-blue-400/30 overflow-hidden relative"
       >
-        {/* Ticket Header */}
-        <div className="bg-blue-600 text-white p-5 text-center relative overflow-hidden">
-          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none"></div>
-          <div className="text-[10px] tracking-widest font-extrabold uppercase text-blue-200 mb-1">
-            PARKPASS
+        {/* Pass Top Identity Bar */}
+        <div className="px-6 pt-6 pb-3 flex items-center justify-between relative z-10">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center font-black text-xs text-white">
+              PP
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-widest font-extrabold text-blue-200">
+                {pass.societyName || 'ParkPass Resident Society'}
+              </div>
+              <div className="text-xs font-bold text-white/90">VISITOR BOARDING PASS</div>
+            </div>
           </div>
-          <h1 className="text-xl font-extrabold tracking-tight">VISITOR PARKING PASS</h1>
-          <p className="text-xs text-blue-100 font-medium mt-0.5">{pass.societyName}</p>
+          <div className="text-right">
+            <div className="text-[10px] font-mono font-bold text-blue-200">PASS CODE</div>
+            <div className="text-xs font-mono font-extrabold text-white">{pass.passCode}</div>
+          </div>
         </div>
 
-        {/* Ticket Status Bar */}
-        <div className="bg-slate-50 border-b border-slate-100 px-5 py-2.5 flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-500">Pass Status</span>
-          {getStatusBadge(pass.status)}
+        {/* Parking Bay Number Hero Banner */}
+        <div className="px-6 py-4 relative z-10">
+          <div className="liquid-glass rounded-2xl p-4 border border-white/20 flex items-center justify-between">
+            <div>
+              <div className="text-[10px] font-extrabold tracking-widest text-blue-200 uppercase">
+                PARKING BAY
+              </div>
+              <div className="text-3xl font-black text-white tracking-tight mt-0.5">
+                {pass.slotNumber}
+              </div>
+              <div className="text-[11px] font-semibold text-blue-200 mt-0.5">
+                {pass.zone || 'MAIN DECK'} • {pass.vehicleType || 'RESERVED'}
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-[10px] font-extrabold tracking-widest text-blue-200 uppercase">
+                VALID UNTIL
+              </div>
+              <div className="text-sm font-black text-amber-300 mt-1">
+                {validUntilFormatted.split(',')[1] || validUntilFormatted}
+              </div>
+              <div className="text-[10px] font-medium text-blue-200/80 mt-0.5">
+                Pre-Allocated Bay
+              </div>
+            </div>
+          </div>
+
+          {/* Passenger / Visitor Name */}
+          <div className="mt-5 pt-4 border-t border-white/15">
+            <div className="text-[10px] font-extrabold tracking-widest text-blue-200 uppercase">
+              VISITOR NAME
+            </div>
+            <div className="text-xl font-black tracking-tight text-white mt-0.5 uppercase">
+              {pass.visitorName}
+            </div>
+          </div>
+
+          {/* Boarding Pass Pill Badges */}
+          <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] font-bold">
+            <span className="px-2.5 py-1 rounded-lg liquid-pill text-white uppercase">
+              {pass.vehicleType || 'CAR'} • {pass.vehicleNumber}
+            </span>
+            <span className="px-2.5 py-1 rounded-lg liquid-pill text-blue-100">
+              {pass.towerName} — Flat {pass.flatNumber}
+            </span>
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/30 border border-emerald-300/40 text-emerald-200 font-extrabold">
+              PRE-APPROVED ✓
+            </span>
+          </div>
+
+          {/* Key Stat Grid (Southwest style: EXPECTED, TOWER, DESTINATION, BAY #) */}
+          <div className="mt-4 grid grid-cols-4 gap-2 pt-3 border-t border-white/15 text-center">
+            <div>
+              <div className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wider">EXPECTED</div>
+              <div className="text-xs font-black text-white mt-0.5">{arrivalFormatted}</div>
+            </div>
+            <div>
+              <div className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wider">TOWER</div>
+              <div className="text-xs font-black text-white mt-0.5">{pass.towerName || 'A'}</div>
+            </div>
+            <div>
+              <div className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wider">FLAT</div>
+              <div className="text-xs font-black text-white mt-0.5">{pass.flatNumber || '—'}</div>
+            </div>
+            <div>
+              <div className="text-[9px] font-extrabold text-blue-200 uppercase tracking-wider">BAY #</div>
+              <div className="text-xs font-black text-amber-300 mt-0.5">{pass.slotNumber}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Perforated Divider with Cutout Notches */}
+        <div className="relative my-1">
+          <div className="ticket-notch-left"></div>
+          <div className="ticket-notch-right"></div>
+          <div className="border-t-2 border-dashed border-white/20 mx-4"></div>
         </div>
 
         {/* Smart Arrival Coordination Box (Feature 3) */}
         {pass.status === 'SCHEDULED' && (
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 p-4">
+          <div className="p-4 mx-4 my-2 rounded-2xl liquid-glass border border-white/20">
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900">
-                <Navigation className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
-                <span>Smart Arrival Coordination</span>
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                <Navigation className="w-3.5 h-3.5 text-blue-300 animate-pulse" />
+                <span>Arrival Coordination</span>
               </div>
               {pass.arrivalStatus === 'ARRIVED' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Arrived at Gate
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-500/30 text-emerald-200 rounded-full border border-emerald-400/40 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> At Gate ✓
                 </span>
               )}
               {pass.arrivalStatus === 'ON_THE_WAY' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full flex items-center gap-1">
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-400/30 text-blue-100 rounded-full border border-blue-300/40 flex items-center gap-1">
                   <Compass className="w-3 h-3" /> On Way (~{pass.etaMinutes || 15}m)
                 </span>
               )}
               {pass.arrivalStatus === 'DELAYED' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-500/30 text-amber-200 rounded-full border border-amber-400/40">
                   Delayed (~{pass.etaMinutes}m)
                 </span>
               )}
-              {pass.arrivalStatus === 'SCHEDULED' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full">
+              {(!pass.arrivalStatus || pass.arrivalStatus === 'SCHEDULED') && (
+                <span className="text-[10px] font-bold px-2 py-0.5 liquid-pill text-white/80">
                   Expected {arrivalFormatted}
                 </span>
               )}
             </div>
 
-            <p className="text-[11px] text-blue-800/80 mb-3 leading-tight">
-              Keep resident and gate security updated with your live arrival status:
-            </p>
-
             {/* Quick Action Buttons */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mt-2">
               <button
                 type="button"
                 onClick={() => setShowEtaSelector(!showEtaSelector)}
                 disabled={updatingArrival}
-                className="py-2 px-2.5 rounded-xl bg-white border border-blue-200 hover:border-blue-400 text-blue-700 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+                className="py-2 px-2.5 rounded-xl liquid-pill hover:bg-white/20 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95"
               >
-                <Compass className="w-3.5 h-3.5 text-blue-600" />
+                <Compass className="w-3.5 h-3.5 text-blue-300" />
                 <span>{pass.arrivalStatus === 'ON_THE_WAY' ? 'Update ETA' : "I'm on my way"}</span>
               </button>
 
@@ -322,10 +428,10 @@ ${window.location.href}`;
                 type="button"
                 onClick={() => updateArrivalStatus('ARRIVED')}
                 disabled={updatingArrival || pass.arrivalStatus === 'ARRIVED'}
-                className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 ${
+                className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
                   pass.arrivalStatus === 'ARRIVED'
-                    ? 'bg-emerald-600 text-white cursor-default'
-                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                    ? 'bg-emerald-500/40 border border-emerald-300/50 text-white cursor-default'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/30'
                 }`}
               >
                 <CheckCircle2 className="w-3.5 h-3.5" />
@@ -333,129 +439,67 @@ ${window.location.href}`;
               </button>
             </div>
 
-            {/* ETA Selector Dropdown Modal */}
+            {/* ETA Selector Modal */}
             {showEtaSelector && (
-              <div className="mt-2.5 p-2.5 bg-white rounded-xl border border-blue-200 shadow-md">
-                <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center justify-between">
-                  <span>Select your estimated arrival time:</span>
-                  <button onClick={() => setShowEtaSelector(false)} className="text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+              <div className="mt-2.5 p-2.5 rounded-xl liquid-glass-dark border border-white/20">
+                <div className="text-[11px] font-bold text-white/90 mb-1.5 flex items-center justify-between">
+                  <span>Select estimated arrival:</span>
+                  <button onClick={() => setShowEtaSelector(false)} className="text-white/60 hover:text-white text-xs font-bold">✕</button>
                 </div>
                 <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
                   {[10, 20, 30, 45].map((mins) => (
                     <button
                       key={mins}
                       onClick={() => updateArrivalStatus('ON_THE_WAY', mins)}
-                      className="py-1.5 px-1 rounded-lg bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-center transition-colors"
+                      className="py-1.5 px-1 rounded-lg liquid-pill hover:bg-blue-600 text-white text-center transition-colors"
                     >
                       {mins}m
                     </button>
                   ))}
                 </div>
-                <button
-                  onClick={() => updateArrivalStatus('DELAYED', 45)}
-                  className="w-full mt-2 py-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 rounded-lg text-center"
-                >
-                  Running Late? Notify Guard (+45m grace)
-                </button>
-              </div>
-            )}
-
-            {/* Confirmation Feedback */}
-            {arrivalMessage && (
-              <div className="mt-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5">
-                <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                <span>{arrivalMessage}</span>
               </div>
             )}
           </div>
         )}
 
-        {/* Ticket Body */}
-        <div className="p-5 space-y-4">
-          {/* Key Details Grid */}
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span className="text-[11px] text-slate-500 block">Visitor</span>
-              <span className="font-bold text-slate-900 text-sm">{pass.visitorName}</span>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span className="text-[11px] text-slate-500 block">Vehicle</span>
-              <span className="font-bold text-slate-900 text-sm font-mono">{pass.vehicleNumber}</span>
-            </div>
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-100">
-              <span className="text-[11px] text-slate-500 block">Destination</span>
-              <span className="font-bold text-slate-900 text-xs">
-                {pass.towerName} — Flat {pass.flatNumber}
-              </span>
-            </div>
-
-            <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-              <span className="text-[11px] text-blue-700 font-medium block">Assigned Bay</span>
-              <span className="font-black text-blue-600 text-base">{pass.slotNumber}</span>
-            </div>
+        {/* High-Contrast Apple Wallet QR Section */}
+        <div className="px-6 py-5 text-center relative z-10">
+          <div className="flex items-center justify-center gap-1.5 text-xs font-bold text-emerald-300 mb-3">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>ParkPass Security Verified ✓</span>
           </div>
 
-          {/* Time validity */}
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>Expected Arrival:</span>
-              </span>
-              <span className="font-semibold text-slate-800">{arrivalFormatted}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span>Valid Until:</span>
-              </span>
-              <span className="font-semibold text-slate-800">{validUntilFormatted}</span>
-            </div>
+          <div className="inline-block p-4 bg-white rounded-3xl shadow-2xl shadow-black/40">
+            {qrDataUrl ? (
+              <img
+                src={qrDataUrl}
+                alt="ParkPass Boarding Pass QR"
+                className="w-56 h-56 mx-auto rounded-xl object-contain"
+              />
+            ) : (
+              <div className="w-56 h-56 bg-slate-100 animate-pulse rounded-xl"></div>
+            )}
           </div>
 
-          {/* QR Code Container */}
-          <div className="text-center pt-2">
-            <div className="inline-block p-3 bg-white rounded-2xl border-2 border-dashed border-slate-300 shadow-sm">
-              {qrDataUrl ? (
-                <img
-                  src={qrDataUrl}
-                  alt="ParkPass QR Code"
-                  className="w-56 h-56 mx-auto rounded-lg object-contain"
-                />
-              ) : (
-                <div className="w-56 h-56 bg-slate-100 animate-pulse rounded-lg"></div>
-              )}
-            </div>
-
-            <p className="text-xs font-bold text-slate-800 mt-3">
-              Show this QR code to security at the society entrance.
-            </p>
-            <p className="text-[11px] text-blue-600 font-semibold mt-1">
-              Please park only in your assigned slot ({pass.slotNumber}).
-            </p>
+          <div className="mt-3 font-mono font-black text-sm tracking-wider text-white">
+            {pass.passCode}
           </div>
-
-          {/* Disclaimer */}
-          <div className="border-t border-slate-100 pt-3 text-center">
-            <p className="text-[10px] text-slate-400 leading-tight">
-              Entry is subject to society security verification and parking rules.
-            </p>
-          </div>
+          <p className="text-[11px] font-medium text-blue-200 mt-1">
+            Show this digital boarding pass & QR to security at society gate.
+          </p>
         </div>
 
-        {/* Actions Footer */}
-        <div className="bg-slate-50 p-4 border-t border-slate-100 space-y-2.5">
-          {/* One-Tap Extend Stay on Public Ticket */}
+        {/* Liquid Glass Actions Footer */}
+        <div className="px-6 py-5 bg-black/25 backdrop-blur-xl border-t border-white/10 space-y-3">
+          {/* One-Tap Extend Stay */}
           {(pass.status === 'SCHEDULED' || pass.status === 'CHECKED_IN') && (
-            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl">
-              <div className="flex items-center justify-between text-xs font-bold text-amber-900 mb-2">
+            <div className="p-3 rounded-2xl liquid-glass border border-amber-300/30">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-200 mb-2">
                 <span className="flex items-center gap-1.5">
-                  <Zap className="w-3.5 h-3.5 text-amber-600" />
-                  Extend Parking Stay
+                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  Extend Stay Duration
                 </span>
-                <span className="text-[10px] text-amber-700 font-medium">Instant</span>
+                <span className="text-[10px] text-amber-300 font-medium">Instant</span>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 {[1, 2, 4].map((hrs) => (
@@ -464,9 +508,9 @@ ${window.location.href}`;
                     type="button"
                     disabled={extending}
                     onClick={() => handleExtendPass(hrs)}
-                    className="py-1.5 px-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 flex items-center justify-center gap-1 transition-all active:scale-95 disabled:opacity-50"
+                    className="py-1.5 px-2 liquid-pill hover:bg-amber-400/20 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-all active:scale-95 disabled:opacity-50"
                   >
-                    <Zap className="w-3 h-3 text-amber-500" />
+                    <Zap className="w-3 h-3 text-amber-400" />
                     <span>+{hrs}h</span>
                   </button>
                 ))}
@@ -477,15 +521,15 @@ ${window.location.href}`;
           <div className="flex items-center justify-around gap-2 text-xs">
             <button
               onClick={shareWhatsApp}
-              className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+              className="flex-1 py-2.5 px-3 rounded-xl bg-white text-blue-900 font-bold flex items-center justify-center gap-1.5 transition-transform active:scale-95 shadow-md"
             >
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-3.5 h-3.5 text-blue-700" />
               <span>WhatsApp</span>
             </button>
 
             <button
               onClick={copyLink}
-              className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
+              className="py-2.5 px-3 rounded-xl liquid-pill text-white font-bold flex items-center justify-center gap-1.5 transition-transform active:scale-95"
               title="Copy Pass Link"
             >
               <Copy className="w-3.5 h-3.5" />
@@ -494,8 +538,8 @@ ${window.location.href}`;
 
             <button
               onClick={printTicket}
-              className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
-              title="Print or Save PDF"
+              className="py-2.5 px-3 rounded-xl liquid-pill text-white font-bold flex items-center justify-center gap-1.5 transition-transform active:scale-95"
+              title="Print Pass"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Print</span>
@@ -506,9 +550,9 @@ ${window.location.href}`;
             <button
               onClick={handleCancelPass}
               disabled={cancelling}
-              className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              className="w-full py-2.5 px-3 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-400/30 text-red-200 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
             >
-              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <Trash2 className="w-3.5 h-3.5 text-red-400" />
               <span>{cancelling ? 'Cancelling Pass...' : 'Cancel Pass & Free Slot'}</span>
             </button>
           )}
