@@ -28,6 +28,9 @@ import {
   X,
   Phone,
   Trash2,
+  Navigation,
+  Compass,
+  ListOrdered,
 } from 'lucide-react';
 
 export default function GuardTerminal() {
@@ -424,25 +427,32 @@ export default function GuardTerminal() {
               <p className="text-xs text-slate-500 font-medium">{currentDateStr}</p>
             </div>
 
-            {/* Stat Boxes Row (Parked, Available, Total) */}
-            <div className="grid grid-cols-3 gap-2.5 text-center">
-              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
-                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Parked</span>
-                <div className="text-xl font-extrabold text-slate-900">
+            {/* Stat Boxes Row (Parked, Available, Total, Waitlist) */}
+            <div className="grid grid-cols-4 gap-2 text-center">
+              <div className="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-semibold text-slate-500 block mb-0.5">Parked</span>
+                <div className="text-lg font-extrabold text-slate-900">
                   {dashboardData?.stats?.parkedVehicles ?? 0}
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
-                <span className="text-[11px] font-semibold text-emerald-600 block mb-0.5">Available</span>
-                <div className="text-xl font-extrabold text-emerald-600">
+              <div className="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-semibold text-emerald-600 block mb-0.5">Available</span>
+                <div className="text-lg font-extrabold text-emerald-600">
                   {dashboardData?.stats?.availableSlots ?? 20}
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
-                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Total</span>
-                <div className="text-xl font-extrabold text-slate-900">
+              <div className="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-semibold text-purple-600 block mb-0.5">Waitlist</span>
+                <div className="text-lg font-extrabold text-purple-700">
+                  {dashboardData?.stats?.activeWaitlist ?? 0}
+                </div>
+              </div>
+
+              <div className="bg-white p-2.5 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-semibold text-slate-500 block mb-0.5">Total</span>
+                <div className="text-lg font-extrabold text-slate-900">
                   {dashboardData?.stats?.totalSlots ?? 20}
                 </div>
               </div>
@@ -500,6 +510,85 @@ export default function GuardTerminal() {
                 </div>
               </button>
             </div>
+
+            {/* Smart Arrival Coordination Live Stream (Feature 3) */}
+            {dashboardData?.expectedArrivals && dashboardData.expectedArrivals.length > 0 && (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                    <Navigation className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                    <span>Expected Arrivals Today ({dashboardData.expectedArrivals.length})</span>
+                  </h3>
+                </div>
+
+                <div className="space-y-2">
+                  {dashboardData.expectedArrivals.map((exp: any) => (
+                    <div
+                      key={exp.id}
+                      className={`p-3.5 rounded-2xl border transition-all ${
+                        exp.arrivalStatus === 'ARRIVED'
+                          ? 'bg-emerald-50 border-emerald-300 shadow-sm'
+                          : exp.arrivalStatus === 'ON_THE_WAY'
+                          ? 'bg-blue-50/70 border-blue-200 shadow-sm'
+                          : 'bg-white border-slate-200/80 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 text-xs">{exp.visitorName}</span>
+                            {exp.arrivalStatus === 'ARRIVED' && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white animate-pulse flex items-center gap-1">
+                                <Check className="w-2.5 h-2.5" /> AT GATE NOW
+                              </span>
+                            )}
+                            {exp.arrivalStatus === 'ON_THE_WAY' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center gap-1">
+                                <Compass className="w-2.5 h-2.5 text-blue-600" /> On Way (~{exp.etaMinutes || 15}m)
+                              </span>
+                            )}
+                            {exp.arrivalStatus === 'DELAYED' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Delayed (~{exp.etaMinutes || 30}m)
+                              </span>
+                            )}
+                            {(!exp.arrivalStatus || exp.arrivalStatus === 'SCHEDULED') && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                                Expected {new Date(exp.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-1 flex items-center gap-1.5">
+                            <span className="font-mono font-bold text-slate-800">{exp.vehicleNumber}</span>
+                            <span>•</span>
+                            <span className="font-semibold text-blue-600">Slot {exp.parkingSlot?.slotNumber}</span>
+                            <span>•</span>
+                            <span>Flat {exp.resident?.flat?.flatNumber || ''}</span>
+                          </div>
+                        </div>
+
+                        {/* Quick 1-tap verify button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setManualCode(exp.passCode || exp.secureToken);
+                            setActiveTab('scan');
+                            handleVerify(exp.passCode || exp.secureToken);
+                          }}
+                          className={`px-3 py-1.5 font-bold text-xs rounded-xl shadow-sm transition-all ${
+                            exp.arrivalStatus === 'ARRIVED'
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                              : 'bg-white border border-slate-200 hover:border-blue-400 text-blue-600'
+                          }`}
+                        >
+                          {exp.arrivalStatus === 'ARRIVED' ? 'Allow Entry' : 'Verify'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Recent Activity */}
             <div className="space-y-2.5">

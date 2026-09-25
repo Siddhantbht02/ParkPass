@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { prisma } from '../prisma';
 import { AllocationService } from '../services/allocation.service';
 import { NotificationService } from '../services/notification.service';
+import { WaitlistService } from '../services/waitlist.service';
 import { z } from 'zod';
 
 const CreatePassSchema = z.object({
@@ -18,6 +19,15 @@ const CreatePassSchema = z.object({
 
 const ExtendPassSchema = z.object({
   additionalHours: z.number().min(1).max(48),
+});
+
+const JoinWaitlistSchema = z.object({
+  visitorName: z.string().min(2, 'Visitor name must be at least 2 characters'),
+  visitorPhone: z.string().optional().nullable(),
+  vehicleNumber: z.string().min(4, 'Vehicle number is too short').max(20),
+  vehicleType: z.string().default('CAR'),
+  visitorCategory: z.string().default('GUEST'),
+  durationHours: z.number().min(1).max(72).default(4),
 });
 
 export async function residentRoutes(fastify: FastifyInstance) {
@@ -45,6 +55,8 @@ export async function residentRoutes(fastify: FastifyInstance) {
       upcomingPasses,
       recentPasses,
       notifications,
+      waitlist,
+      expiringPasses,
     ] = await Promise.all([
       prisma.visitorPass.count({
         where: { residentId: user.id, societyId: user.societyId },
@@ -71,7 +83,7 @@ export async function residentRoutes(fastify: FastifyInstance) {
           parkingSlot: true,
         },
         orderBy: { validFrom: 'asc' },
-        take: 5,
+        take: 10,
       }),
       prisma.visitorPass.findMany({
         where: {
@@ -88,7 +100,24 @@ export async function residentRoutes(fastify: FastifyInstance) {
       prisma.notification.findMany({
         where: { userId: user.id },
         orderBy: { createdAt: 'desc' },
-        take: 5,
+        take: 10,
+      }),
+      WaitlistService.getResidentWaitlist(user.id, user.societyId),
+      prisma.visitorPass.findMany({
+        where: {
+          residentId: user.id,
+          societyId: user.societyId,
+          status: { in: ['CHECKED_IN', 'SCHEDULED'] },
+          validUntil: {
+            gte: now,
+            lte: new Date(now.getTime() + 30 * 60 * 1000), // expiring in next 30 minutes
+          },
+        },
+        include: {
+          parkingSlot: true,
+          sessions: true,
+        },
+        orderBy: { validUntil: 'asc' },
       }),
     ]);
 
@@ -97,11 +126,14 @@ export async function residentRoutes(fastify: FastifyInstance) {
         totalBookings: totalPasses,
         activeVisitors: activeSessions.length,
         upcomingArrivals: upcomingPasses.length,
+        activeWaitlist: waitlist.filter((w) => w.status === 'WAITING').length,
       },
       activeSessions,
       upcomingPasses,
       recentPasses,
       notifications,
+      waitlist,
+      expiringPasses,
     });
   });
 
@@ -155,7 +187,9 @@ export async function residentRoutes(fastify: FastifyInstance) {
 
     if (!slot) {
       return reply.status(409).send({
-        error: 'No visitor parking is available during this time. Please select a different time or date.',
+        error: 'PARKING_FULL',
+        canWaitlist: true,
+        message: 'No visitor parking is available during this time. All slots are currently occupied. You can join the Society Parking Waitlist to be automatically allocated when a vehicle exits.',
       });
     }
 
@@ -358,10 +392,13 @@ export async function residentRoutes(fastify: FastifyInstance) {
       });
     });
 
+    // Check and promote eligible waitlist entry immediately
+    WaitlistService.checkAndPromoteWaitlist(user.societyId, pass.vehicleType).catch(console.error);
+
     return reply.send({ message: 'Visitor pass successfully cancelled and parking slot released.' });
   });
 
-  // POST /visitor-passes/:id/extend
+  // POST /visitor-passes/:id/extend (One-Tap Visitor Extension with Alternative Slot Check)
   fastify.post('/visitor-passes/:id/extend', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = (request as any).user;
     const { id } = request.params as any;
@@ -379,6 +416,10 @@ export async function residentRoutes(fastify: FastifyInstance) {
         residentId: user.id,
         societyId: user.societyId,
       },
+      include: {
+        parkingSlot: true,
+        sessions: { where: { status: 'ACTIVE' } },
+      },
     });
 
     if (!pass) {
@@ -392,46 +433,238 @@ export async function residentRoutes(fastify: FastifyInstance) {
     const currentEndTime = new Date(pass.validUntil);
     const newEndTime = new Date(currentEndTime.getTime() + additionalHours * 60 * 60 * 1000);
 
-    // Check if the current slot is available for extended period
-    const isAvailable = await AllocationService.isSlotAvailable(
+    // 1. Check if the current slot is available for extended period
+    const isCurrentSlotAvailable = await AllocationService.isSlotAvailable(
       pass.parkingSlotId,
       currentEndTime,
       newEndTime,
       pass.id
     );
 
-    if (!isAvailable) {
-      return reply.status(409).send({
-        error: 'Cannot extend parking: slot has a subsequent reservation. Please contact society administration.',
+    if (isCurrentSlotAvailable) {
+      // Direct extension on same slot!
+      await prisma.$transaction(async (tx) => {
+        await tx.visitorPass.update({
+          where: { id: pass.id },
+          data: {
+            validUntil: newEndTime,
+            durationHours: pass.durationHours + additionalHours,
+          },
+        });
+
+        await tx.parkingReservation.updateMany({
+          where: { passId: pass.id, status: 'ACTIVE' },
+          data: { endTime: newEndTime },
+        });
+
+        await tx.visitEvent.create({
+          data: {
+            societyId: user.societyId,
+            passId: pass.id,
+            eventType: 'PASS_EXTENDED',
+            metadata: JSON.stringify({
+              additionalHours,
+              newEndTime,
+              slot: pass.parkingSlot.slotNumber,
+              reassigned: false,
+            }),
+          },
+        });
+
+        await tx.notification.create({
+          data: {
+            societyId: user.societyId,
+            userId: user.id,
+            title: `Parking Extended (+${additionalHours}h)`,
+            message: `Parking for ${pass.visitorName} (${pass.vehicleNumber}) extended until ${newEndTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} in slot ${pass.parkingSlot.slotNumber}. No security call needed!`,
+            type: 'SYSTEM',
+          },
+        });
+      });
+
+      return reply.send({
+        success: true,
+        reassigned: false,
+        slotNumber: pass.parkingSlot.slotNumber,
+        newEndTime,
+        message: `Pass successfully extended by ${additionalHours} hour(s) until ${newEndTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })} in slot ${pass.parkingSlot.slotNumber}.`,
       });
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.visitorPass.update({
-        where: { id: pass.id },
-        data: {
-          validUntil: newEndTime,
-          durationHours: pass.durationHours + additionalHours,
-        },
+    // 2. Current slot has upcoming conflict! Check for an alternative available slot
+    const alternativeSlot = await AllocationService.allocateSlot({
+      societyId: user.societyId,
+      vehicleType: pass.vehicleType,
+      startTime: currentEndTime,
+      endTime: newEndTime,
+      excludePassId: pass.id,
+    });
+
+    if (alternativeSlot) {
+      // Relocate seamlessly to alternative slot!
+      await prisma.$transaction(async (tx) => {
+        await tx.visitorPass.update({
+          where: { id: pass.id },
+          data: {
+            parkingSlotId: alternativeSlot.id,
+            validUntil: newEndTime,
+            durationHours: pass.durationHours + additionalHours,
+          },
+        });
+
+        // Update reservation with alternative slot and new end time
+        await tx.parkingReservation.updateMany({
+          where: { passId: pass.id, status: 'ACTIVE' },
+          data: {
+            parkingSlotId: alternativeSlot.id,
+            endTime: newEndTime,
+          },
+        });
+
+        // If physically checked in, update session parking slot
+        if (pass.sessions.length > 0) {
+          await tx.parkingSession.updateMany({
+            where: { passId: pass.id, status: 'ACTIVE' },
+            data: { parkingSlotId: alternativeSlot.id },
+          });
+        }
+
+        await tx.visitEvent.create({
+          data: {
+            societyId: user.societyId,
+            passId: pass.id,
+            eventType: 'PASS_EXTENDED_REASSIGNED',
+            metadata: JSON.stringify({
+              additionalHours,
+              previousSlot: pass.parkingSlot.slotNumber,
+              newSlot: alternativeSlot.slotNumber,
+              newEndTime,
+            }),
+          },
+        });
+
+        await tx.notification.create({
+          data: {
+            societyId: user.societyId,
+            userId: user.id,
+            title: `Parking Extended (Relocated to ${alternativeSlot.slotNumber})`,
+            message: `Slot ${pass.parkingSlot.slotNumber} has an upcoming reservation. Visitor was seamlessly moved to alternative slot ${alternativeSlot.slotNumber} until ${newEndTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.`,
+            type: 'SYSTEM',
+          },
+        });
       });
 
-      await tx.parkingReservation.updateMany({
-        where: { passId: pass.id, status: 'ACTIVE' },
-        data: { endTime: newEndTime },
+      return reply.send({
+        success: true,
+        reassigned: true,
+        previousSlot: pass.parkingSlot.slotNumber,
+        slotNumber: alternativeSlot.slotNumber,
+        newEndTime,
+        message: `Current slot (${pass.parkingSlot.slotNumber}) is reserved for another resident. Your visitor was seamlessly relocated to alternative slot ${alternativeSlot.slotNumber} until ${newEndTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}.`,
       });
+    }
 
-      await tx.visitEvent.create({
-        data: {
-          societyId: user.societyId,
-          passId: pass.id,
-          eventType: 'PASS_EXTENDED',
-          metadata: JSON.stringify({ additionalHours, newEndTime }),
-        },
+    // 3. No slots available
+    return reply.status(409).send({
+      error: 'PARKING_FULL',
+      canWaitlist: true,
+      message: `All visitor parking bays are booked for this extension window. You can join the society waitlist to secure the next available bay.`,
+    });
+  });
+
+  // POST /waitlist (Join Society Parking Waitlist)
+  fastify.post('/waitlist', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const parseResult = JoinWaitlistSchema.safeParse(request.body);
+
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        error: 'Validation failed',
+        details: parseResult.error.flatten(),
       });
+    }
+
+    const data = parseResult.data;
+    const result = await WaitlistService.addToWaitlist({
+      societyId: user.societyId,
+      residentId: user.id,
+      visitorName: data.visitorName,
+      visitorPhone: data.visitorPhone,
+      vehicleNumber: data.vehicleNumber,
+      vehicleType: data.vehicleType,
+      visitorCategory: data.visitorCategory,
+      durationHours: data.durationHours,
+    });
+
+    return reply.status(201).send(result);
+  });
+
+  // GET /waitlist (Get resident's active waitlist entries)
+  fastify.get('/waitlist', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const entries = await WaitlistService.getResidentWaitlist(user.id, user.societyId);
+    return reply.send({ waitlist: entries });
+  });
+
+  // DELETE /waitlist/:id (Cancel waitlist entry)
+  fastify.delete('/waitlist/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const { id } = request.params as any;
+
+    try {
+      const cancelled = await WaitlistService.cancelWaitlist(id, user.id);
+      return reply.send({ message: 'Waitlist entry cancelled successfully', entry: cancelled });
+    } catch (err: any) {
+      return reply.status(400).send({ error: err.message || 'Failed to cancel waitlist entry' });
+    }
+  });
+
+  // POST /simulate-expiry-alert (Demo trigger for "Your visitor's parking expires in 15 minutes")
+  fastify.post('/simulate-expiry-alert', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const body = (request.body as any) || {};
+
+    let targetPass: any = null;
+    if (body.passId) {
+      targetPass = await prisma.visitorPass.findFirst({
+        where: { id: body.passId, residentId: user.id },
+        include: { parkingSlot: true },
+      });
+    }
+
+    if (!targetPass) {
+      targetPass = await prisma.visitorPass.findFirst({
+        where: { residentId: user.id, status: { in: ['CHECKED_IN', 'SCHEDULED'] } },
+        include: { parkingSlot: true },
+        orderBy: { validUntil: 'asc' },
+      });
+    }
+
+    if (!targetPass) {
+      return reply.status(400).send({ error: 'No active or scheduled pass found to trigger expiry alert for.' });
+    }
+
+    const notification = await prisma.notification.create({
+      data: {
+        societyId: user.societyId,
+        userId: user.id,
+        title: '⚠️ Parking Expires in 15 Minutes',
+        message: `Your visitor ${targetPass.visitorName}'s parking in slot ${targetPass.parkingSlot.slotNumber} expires in 15 minutes. Tap below to extend with one tap!`,
+        type: 'EXPIRING_SOON',
+        metadata: JSON.stringify({
+          passId: targetPass.id,
+          slotNumber: targetPass.parkingSlot.slotNumber,
+          vehicleNumber: targetPass.vehicleNumber,
+          visitorName: targetPass.visitorName,
+          validUntil: targetPass.validUntil,
+        }),
+      },
     });
 
     return reply.send({
-      message: `Pass extended by ${additionalHours} hours until ${newEndTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`,
+      success: true,
+      message: 'Expiry alert sent to resident dashboard.',
+      notification,
     });
   });
 

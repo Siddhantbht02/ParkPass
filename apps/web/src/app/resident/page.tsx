@@ -35,20 +35,26 @@ import {
   Download,
   Trash2,
   XCircle,
+  Zap,
+  ListOrdered,
+  Navigation,
+  Compass,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function ResidentPortal() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
 
-  // Navigation: 'home' (Screen 1), 'book' (Screen 2), 'visitors' (Screen 4), 'passModal' (Screen 3)
-  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'visitors'>('home');
+  // Navigation: 'home', 'book', 'visitors', 'waitlist'
+  const [activeTab, setActiveTab] = useState<'home' | 'book' | 'visitors' | 'waitlist'>('home');
 
   // Dashboard state
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
 
-  // Booking Form State (Screen 2)
+  // Booking Form State
   const [visitorName, setVisitorName] = useState('');
   const [visitorPhone, setVisitorPhone] = useState('');
   const [visitorCategory, setVisitorCategory] = useState('GUEST');
@@ -84,6 +90,19 @@ export default function ResidentPortal() {
   const [extendHours, setExtendHours] = useState(2);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // One-Tap Extension & Expiry state
+  const [extendingPassId, setExtendingPassId] = useState<string | null>(null);
+  const [simulatingExpiry, setSimulatingExpiry] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // Waitlist State
+  const [waitlistModalOpen, setWaitlistModalOpen] = useState(false);
+  const [waitlistVisitorName, setWaitlistVisitorName] = useState('');
+  const [waitlistVehicle, setWaitlistVehicle] = useState('');
+  const [waitlistVehicleType, setWaitlistVehicleType] = useState('CAR');
+  const [waitlistDuration, setWaitlistDuration] = useState(4);
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -147,7 +166,7 @@ export default function ResidentPortal() {
     }
   }, [activeTab, visitorsFilter, arrivalDate, durationHours, vehicleType]);
 
-  // Submit Booking (Screen 2 -> Screen 3)
+  // Submit Booking
   const handleCreatePass = async (e: React.FormEvent) => {
     e.preventDefault();
     setBookingError(null);
@@ -194,6 +213,93 @@ export default function ResidentPortal() {
     }
   };
 
+  // One-Tap Visitor Extension
+  const handleOneTapExtend = async (passId: string, hours: number) => {
+    try {
+      setExtendingPassId(passId);
+      const res = await fetchApi<{ success: boolean; reassigned?: boolean; slotNumber: string; message: string }>(
+        `/api/v1/resident/visitor-passes/${passId}/extend`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ additionalHours: hours }),
+        }
+      );
+      alert('⚡ ' + (res.message || 'Parking extended successfully!'));
+      await loadDashboard();
+      if (activeTab === 'visitors') loadVisitors();
+      if (selectedPass) setSelectedPass(null);
+    } catch (err: any) {
+      alert('Could not extend: ' + (err.message || 'Parking slots full'));
+    } finally {
+      setExtendingPassId(null);
+    }
+  };
+
+  // Simulate 15-Minute Expiry Alert
+  const handleSimulateExpiry = async (passId?: string) => {
+    try {
+      setSimulatingExpiry(true);
+      await fetchApi('/api/v1/resident/simulate-expiry-alert', {
+        method: 'POST',
+        body: JSON.stringify({ passId }),
+      });
+      await loadDashboard();
+      alert('🔔 Simulated 15-minute expiry alert sent! Look at the banner above and in your notifications.');
+    } catch (err: any) {
+      alert(err.message || 'Could not simulate expiry');
+    } finally {
+      setSimulatingExpiry(false);
+    }
+  };
+
+  // Join Waitlist Handler
+  const handleJoinWaitlist = async (e?: React.FormEvent, customPayload?: any) => {
+    if (e) e.preventDefault();
+    try {
+      setWaitlistLoading(true);
+      const payload = customPayload || {
+        visitorName: waitlistVisitorName || visitorName,
+        vehicleNumber: (waitlistVehicle || vehicleNumber).toUpperCase(),
+        vehicleType: waitlistVehicleType || vehicleType,
+        durationHours: Number(waitlistDuration || durationHours),
+      };
+
+      const res = await fetchApi<{ entry: any; queuePosition: number; message: string }>('/api/v1/resident/waitlist', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      alert(`🎉 ${res.message || 'Joined waitlist at position #' + res.queuePosition}`);
+      setWaitlistModalOpen(false);
+      setBookingError(null);
+      await loadDashboard();
+      setActiveTab('waitlist');
+    } catch (err: any) {
+      alert('Error joining waitlist: ' + (err.message || 'Failed'));
+    } finally {
+      setWaitlistLoading(false);
+    }
+  };
+
+  // Cancel Waitlist Handler
+  const handleCancelWaitlist = async (id: string) => {
+    if (!confirm('Leave the society parking waitlist?')) return;
+    try {
+      await fetchApi(`/api/v1/resident/waitlist/${id}`, { method: 'DELETE' });
+      await loadDashboard();
+    } catch (err: any) {
+      alert('Could not cancel waitlist entry: ' + (err.message || 'Error'));
+    }
+  };
+
+  // Copy coordination link
+  const copyCoordinationLink = (token: string) => {
+    const url = `${window.location.origin}/pass/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2500);
+  };
+
   // Cancel Pass
   const handleCancelPass = async (passId: string) => {
     if (!confirm('Cancel this visitor pass? The reserved parking slot will be freed.')) {
@@ -203,26 +309,6 @@ export default function ResidentPortal() {
     setActionMessage(null);
     try {
       const res = await fetchApi(`/api/v1/resident/visitor-passes/${passId}/cancel`, { method: 'POST' });
-      setActionMessage(res.message);
-      loadVisitors();
-      loadDashboard();
-      setTimeout(() => setSelectedPass(null), 1500);
-    } catch (err: any) {
-      setActionMessage(err.message);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  // Extend Pass
-  const handleExtendPass = async (passId: string) => {
-    setActionLoading(true);
-    setActionMessage(null);
-    try {
-      const res = await fetchApi(`/api/v1/resident/visitor-passes/${passId}/extend`, {
-        method: 'POST',
-        body: JSON.stringify({ additionalHours: Number(extendHours) }),
-      });
       setActionMessage(res.message);
       loadVisitors();
       loadDashboard();
@@ -279,9 +365,61 @@ export default function ResidentPortal() {
     month: 'short',
   });
 
+  const activeWaitlistCount = dashboardData?.stats?.activeWaitlist ?? 0;
+  const expiringPasses = dashboardData?.expiringPasses || [];
+
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
       <div className="max-w-md mx-auto px-4 pt-5 pb-6">
+
+        {/* 1. ONE-TAP VISITOR EXTENSION: 15-MINUTE WARNING BANNER (Feature 2) */}
+        {expiringPasses.length > 0 && (
+          <div className="mb-4 bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-4 text-white shadow-lg shadow-orange-500/20 border border-orange-400 animate-in fade-in duration-300">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shrink-0">
+                  <Zap className="w-4 h-4 text-white animate-bounce" />
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider font-extrabold text-orange-100">
+                    One-Tap Visitor Extension
+                  </div>
+                  <h4 className="text-sm font-extrabold leading-tight">
+                    Parking Expires in ~15 Minutes!
+                  </h4>
+                </div>
+              </div>
+            </div>
+
+            {expiringPasses.map((expPass: any) => (
+              <div key={expPass.id} className="mt-2 bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20">
+                <div className="flex items-center justify-between text-xs mb-2">
+                  <span className="font-bold">{expPass.visitorName} ({expPass.vehicleNumber})</span>
+                  <span className="font-bold bg-white/20 px-2 py-0.5 rounded-full text-[10px]">
+                    Slot {expPass.parkingSlot?.slotNumber}
+                  </span>
+                </div>
+                <p className="text-[11px] text-orange-100 mb-2.5">
+                  Valid until {new Date(expPass.validUntil).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}. Tap below to extend instantly without calling security:
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 2, 4].map((hrs) => (
+                    <button
+                      key={hrs}
+                      type="button"
+                      disabled={extendingPassId === expPass.id}
+                      onClick={() => handleOneTapExtend(expPass.id, hrs)}
+                      className="py-1.5 px-2 bg-white text-orange-950 font-black text-xs rounded-xl hover:bg-orange-50 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1"
+                    >
+                      <Zap className="w-3 h-3 text-orange-600" />
+                      <span>+{hrs} Hour{hrs > 1 ? 's' : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* SCREEN 1: RESIDENT HOME / OVERVIEW */}
         {activeTab === 'home' && (
@@ -296,15 +434,21 @@ export default function ResidentPortal() {
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => handleSimulateExpiry()}
+                  disabled={simulatingExpiry}
+                  className="px-2.5 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-[11px] font-bold flex items-center gap-1 shadow-sm hover:bg-orange-100 transition-colors"
+                  title="Simulate 15-Minute Expiry Alert"
+                >
+                  <Zap className="w-3.5 h-3.5 text-orange-600" />
+                  <span>Test Expiry Alert</span>
+                </button>
+                <button
                   onClick={loadDashboard}
                   className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-sm"
-                  title="Notifications"
+                  title="Refresh"
                 >
-                  <Bell className="w-4 h-4" />
+                  <RefreshCw className={`w-4 h-4 ${loadingDashboard ? 'animate-spin' : ''}`} />
                 </button>
-                <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 border border-blue-200 flex items-center justify-center font-bold text-xs">
-                  {user.name.slice(0, 2).toUpperCase()}
-                </div>
               </div>
             </div>
 
@@ -313,7 +457,7 @@ export default function ResidentPortal() {
               <div className="max-w-[70%]">
                 <h2 className="text-base font-bold text-slate-900 mb-1">Expecting a visitor?</h2>
                 <p className="text-xs text-slate-500 mb-4 leading-relaxed">
-                  Pre-book visitor parking in seconds.
+                  Pre-book visitor parking in seconds with smart arrival coordination.
                 </p>
                 <button
                   onClick={() => setActiveTab('book')}
@@ -350,16 +494,38 @@ export default function ResidentPortal() {
                 </div>
               </div>
 
-              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+              <div
+                onClick={() => setActiveTab('waitlist')}
+                className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm cursor-pointer hover:border-purple-300 transition-colors"
+              >
                 <div className="flex items-center justify-center gap-1.5 mb-0.5">
-                  <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-                  <span className="text-[11px] font-semibold text-slate-500">Total</span>
+                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  <span className="text-[11px] font-semibold text-purple-700 font-bold">Waitlist</span>
                 </div>
-                <div className="text-xl font-extrabold text-slate-900">
-                  {dashboardData?.stats?.totalBookings ?? 0}
+                <div className="text-xl font-extrabold text-purple-900">
+                  {activeWaitlistCount}
                 </div>
               </div>
             </div>
+
+            {/* Waitlist Banner Card if resident has entries */}
+            {activeWaitlistCount > 0 && (
+              <div
+                onClick={() => setActiveTab('waitlist')}
+                className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-2xl p-3.5 flex items-center justify-between cursor-pointer hover:shadow-sm transition-all"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold text-xs">
+                    <ListOrdered className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-purple-950">Society Parking Waitlist</div>
+                    <div className="text-[11px] text-purple-700">You have {activeWaitlistCount} vehicle(s) in queue for freed slots</div>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-purple-500" />
+              </div>
+            )}
 
             {/* Your Visitors Section */}
             <div className="space-y-3">
@@ -373,7 +539,7 @@ export default function ResidentPortal() {
                 </button>
               </div>
 
-              {/* Active Sessions or Upcoming Passes */}
+              {/* Active Sessions */}
               {dashboardData?.activeSessions && dashboardData.activeSessions.length > 0 ? (
                 <div className="space-y-2.5">
                   {dashboardData.activeSessions.map((session: any) => (
@@ -395,49 +561,110 @@ export default function ResidentPortal() {
                           <span className="font-bold text-blue-600">Slot {session.parkingSlot.slotNumber}</span>
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOneTapExtend(session.pass.id, 1);
+                          }}
+                          className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-1"
+                        >
+                          <Zap className="w-3 h-3 text-blue-600" />
+                          <span>+1h</span>
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : null}
 
+              {/* Upcoming Passes with Smart Arrival Coordination (Feature 3) */}
               {dashboardData?.upcomingPasses && dashboardData.upcomingPasses.length > 0 ? (
                 <div className="space-y-2.5">
                   {dashboardData.upcomingPasses.map((pass: any) => (
                     <div
                       key={pass.id}
                       onClick={() => openPassModal(pass)}
-                      className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-400 transition-all cursor-pointer flex items-center justify-between"
+                      className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-400 transition-all cursor-pointer"
                     >
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 text-sm">{pass.visitorName}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
-                            Upcoming
-                          </span>
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 text-sm">{pass.visitorName}</span>
+                            {/* Smart Arrival Status Badge */}
+                            {pass.arrivalStatus === 'ARRIVED' && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse flex items-center gap-1">
+                                <Check className="w-2.5 h-2.5" /> Arrived at Gate
+                              </span>
+                            )}
+                            {pass.arrivalStatus === 'ON_THE_WAY' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center gap-1">
+                                <Compass className="w-2.5 h-2.5 text-blue-600" /> On Way (~{pass.etaMinutes || 15}m)
+                              </span>
+                            )}
+                            {pass.arrivalStatus === 'DELAYED' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                Delayed (~{pass.etaMinutes}m)
+                              </span>
+                            )}
+                            {(!pass.arrivalStatus || pass.arrivalStatus === 'SCHEDULED') && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                                Scheduled
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                            <span className="font-mono font-semibold text-slate-700">{pass.vehicleNumber}</span>
+                            <span>•</span>
+                            <span className="font-bold text-blue-600">Slot {pass.parkingSlot?.slotNumber}</span>
+                            <span>•</span>
+                            <span>{new Date(pass.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
                         </div>
-                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
-                          <span className="font-mono font-semibold text-slate-700">{pass.vehicleNumber}</span>
-                          <span>•</span>
-                          <span className="font-bold text-blue-600">Slot {pass.parkingSlot.slotNumber}</span>
-                          <span>•</span>
-                          <span>{new Date(pass.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
+
+                        <ChevronRight className="w-4 h-4 text-slate-400 mt-1" />
                       </div>
-                      <div className="flex items-center gap-2">
+
+                      {/* Coordination & Action Quick Buttons */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-xs">
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleCancelPass(pass.id);
+                            copyCoordinationLink(pass.secureToken);
                           }}
-                          className="px-2 py-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-[11px] font-semibold transition-colors flex items-center gap-1 border border-transparent hover:border-red-200"
-                          title="Cancel Pass"
+                          className="text-[11px] font-semibold text-slate-600 hover:text-blue-600 flex items-center gap-1"
                         >
-                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                          <span>Cancel</span>
+                          <Share2 className="w-3 h-3" />
+                          <span>{copiedToken === pass.secureToken ? 'Link Copied!' : 'Copy Ticket Link'}</span>
                         </button>
-                        <ChevronRight className="w-4 h-4 text-slate-400" />
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOneTapExtend(pass.id, 1);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-[11px] font-bold flex items-center gap-0.5"
+                          >
+                            <Zap className="w-3 h-3 text-amber-500" />
+                            <span>+1h</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancelPass(pass.id);
+                            }}
+                            className="px-2 py-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-[11px] font-semibold transition-colors flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                            <span>Cancel</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -476,10 +703,25 @@ export default function ResidentPortal() {
               <span className="text-[11px] font-semibold text-slate-400">Step 1 of 3</span>
             </div>
 
+            {/* Parking Full Waitlist Option (Feature 1) */}
             {bookingError && (
-              <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{bookingError}</span>
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-bold">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>{bookingError}</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  All visitor parking slots are full for this requested duration. Instead of turning your guest away, join the <strong>Society Parking Waitlist</strong> to be automatically allocated the next freed bay when a vehicle exits!
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleJoinWaitlist()}
+                  disabled={waitlistLoading}
+                  className="w-full py-2.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                >
+                  <ListOrdered className="w-4 h-4" />
+                  <span>{waitlistLoading ? 'Joining Waitlist...' : 'Join Waitlist for this Visitor'}</span>
+                </button>
               </div>
             )}
 
@@ -647,12 +889,12 @@ export default function ResidentPortal() {
                   <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     4. Parking Allocation
                   </span>
-                  <span className="text-[11px] font-bold text-emerald-600">
-                    {checkingAvailability ? 'Checking...' : `${availability?.availableCount ?? 19} slots free`}
+                  <span className={`text-[11px] font-bold ${availability?.availableCount > 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                    {checkingAvailability ? 'Checking...' : `${availability?.availableCount ?? 0} slots available`}
                   </span>
                 </div>
 
-                {availability?.slots && availability.slots.length > 0 && (
+                {availability?.slots && availability.slots.length > 0 ? (
                   <select
                     value={preferredSlotId}
                     onChange={(e) => setPreferredSlotId(e.target.value)}
@@ -665,164 +907,235 @@ export default function ResidentPortal() {
                       </option>
                     ))}
                   </select>
+                ) : (
+                  <div className="p-2.5 bg-amber-50 rounded-xl text-amber-800 text-xs">
+                    No slots currently free. You can directly join the waitlist below!
+                  </div>
                 )}
               </div>
 
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={bookingLoading}
-                className="w-full py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20 disabled:opacity-60"
-              >
-                {bookingLoading ? (
-                  <span>Reserving Slot & Creating Pass...</span>
-                ) : (
-                  <>
-                    <span>Confirm & Generate Pass</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              {/* Submit Button or Join Waitlist */}
+              {availability?.availableCount === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => handleJoinWaitlist()}
+                  disabled={waitlistLoading}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm shadow-purple-500/20"
+                >
+                  <ListOrdered className="w-4 h-4" />
+                  <span>{waitlistLoading ? 'Joining Waitlist...' : 'Join Waitlist (Auto-Allocate On Next Exit)'}</span>
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={bookingLoading}
+                  className="w-full py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20 disabled:opacity-60"
+                >
+                  {bookingLoading ? (
+                    <span>Reserving Slot & Creating Pass...</span>
+                  ) : (
+                    <>
+                      <span>Confirm & Generate Pass</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              )}
             </form>
+          </div>
+        )}
+
+        {/* SCREEN: WAITLIST TAB (Feature 1) */}
+        {activeTab === 'waitlist' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Society Waitlist</h2>
+                <p className="text-xs text-slate-500">Auto-allocated when vehicles leave the building.</p>
+              </div>
+              <button
+                onClick={() => setWaitlistModalOpen(true)}
+                className="py-1.5 px-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold flex items-center gap-1 shadow-sm"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>Join Waitlist</span>
+              </button>
+            </div>
+
+            {/* Waitlist Explainer */}
+            <div className="p-3.5 rounded-2xl bg-purple-50 border border-purple-200 text-purple-900 text-xs">
+              <div className="flex items-center gap-1.5 font-bold mb-1">
+                <SparklesIcon className="w-4 h-4 text-purple-600" />
+                <span>How the Waitlist Works</span>
+              </div>
+              <p className="text-[11px] text-purple-800 leading-relaxed">
+                When all visitor bays are occupied, you don't need to keep checking. The moment a car or two-wheeler exits at the security gate, ParkPass auto-promotes the next person in line, reserves the slot, and sends an instant WhatsApp ticket!
+              </p>
+            </div>
+
+            {/* List of Waitlist Items */}
+            {dashboardData?.waitlist && dashboardData.waitlist.length > 0 ? (
+              <div className="space-y-3">
+                {dashboardData.waitlist.map((item: any) => (
+                  <div
+                    key={item.id}
+                    className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-2"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">{item.visitorName}</span>
+                          {item.status === 'WAITING' ? (
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
+                              #{item.queuePosition || 1} IN QUEUE
+                            </span>
+                          ) : item.status === 'ALLOCATED' ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              ALLOCATED ✓
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                              {item.status}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                          <span className="font-mono font-semibold text-slate-700">{item.vehicleNumber}</span>
+                          <span>•</span>
+                          <span>{item.vehicleType}</span>
+                          <span>•</span>
+                          <span>{item.durationHours}h request</span>
+                        </div>
+                      </div>
+
+                      {item.status === 'WAITING' && (
+                        <button
+                          type="button"
+                          onClick={() => handleCancelWaitlist(item.id)}
+                          className="px-2.5 py-1 text-red-600 hover:bg-red-50 rounded-lg text-xs font-semibold transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] text-slate-400 pt-1 border-t border-slate-100 flex items-center justify-between">
+                      <span>Joined: {new Date(item.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                      {item.status === 'WAITING' && (
+                        <span className="text-purple-600 font-bold">Auto-allocator active</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-8 text-center border border-slate-200/80 shadow-sm text-xs text-slate-400">
+                <ListOrdered className="w-8 h-8 mx-auto mb-2 opacity-30 text-purple-500" />
+                <p>No active waitlist requests.</p>
+                <p className="text-[11px] text-slate-400 mt-1">If parking is full, join here to get next available spot.</p>
+              </div>
+            )}
           </div>
         )}
 
         {/* SCREEN 4: MY VISITORS */}
         {activeTab === 'visitors' && (
           <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Header */}
             <div>
               <h2 className="text-xl font-bold text-slate-900">My Visitors</h2>
               <p className="text-xs text-slate-500">Manage all your visitor passes and parking sessions.</p>
             </div>
 
-            {/* Search Bar */}
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-              <input
-                type="text"
-                value={visitorsSearch}
-                onChange={(e) => setVisitorsSearch(e.target.value)}
-                placeholder="Search visitor name or vehicle..."
-                className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Filter Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {/* Filter Tabs */}
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
               {[
-                { key: 'ALL', label: 'All' },
+                { key: 'ALL', label: 'All Passes' },
                 { key: 'SCHEDULED', label: 'Upcoming' },
-                { key: 'CHECKED_IN', label: 'Active' },
-                { key: 'CHECKED_OUT', label: 'History' },
-              ].map((f) => (
+                { key: 'CHECKED_IN', label: 'Parked' },
+                { key: 'CHECKED_OUT', label: 'Completed' },
+              ].map((tab) => (
                 <button
-                  key={f.key}
-                  onClick={() => setVisitorsFilter(f.key as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                    visitorsFilter === f.key
-                      ? 'bg-blue-600 text-white shadow-sm'
+                  key={tab.key}
+                  onClick={() => setVisitorsFilter(tab.key as any)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
+                    visitorsFilter === tab.key
+                      ? 'bg-blue-600 text-white'
                       : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
                   }`}
                 >
-                  {f.label}
+                  {tab.label}
                 </button>
               ))}
             </div>
 
-            {/* Visitors List */}
+            {/* List */}
             {loadingVisitors ? (
               <div className="py-12 text-center text-xs text-slate-400">Loading visitors...</div>
-            ) : allVisitors.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200/80">
-                No visitor passes found for this filter.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {allVisitors
-                  .filter((p) => {
-                    if (!visitorsSearch) return true;
-                    const q = visitorsSearch.toLowerCase();
-                    return (
-                      p.visitorName.toLowerCase().includes(q) ||
-                      p.vehicleNumber.toLowerCase().includes(q) ||
-                      p.parkingSlot.slotNumber.toLowerCase().includes(q)
-                    );
-                  })
-                  .map((pass) => (
-                    <div
-                      key={pass.id}
-                      className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">
-                            {pass.visitorName.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="font-bold text-slate-900 text-sm">{pass.visitorName}</div>
-                            <div className="text-xs text-slate-500 font-mono font-semibold">
-                              {pass.vehicleNumber}
-                            </div>
-                          </div>
+            ) : allVisitors.length > 0 ? (
+              <div className="space-y-2.5">
+                {allVisitors.map((pass) => (
+                  <div
+                    key={pass.id}
+                    onClick={() => openPassModal(pass)}
+                    className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-400 transition-all cursor-pointer space-y-2"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">{pass.visitorName}</span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              pass.status === 'CHECKED_IN'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : pass.status === 'SCHEDULED'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {pass.status}
+                          </span>
                         </div>
-
-                        <span
-                          className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase ${
-                            pass.status === 'CHECKED_IN'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : pass.status === 'SCHEDULED'
-                              ? 'bg-blue-100 text-blue-800'
-                              : pass.status === 'CHECKED_OUT'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-red-100 text-red-700'
-                          }`}
-                        >
-                          {pass.status === 'CHECKED_IN' ? 'Parked' : pass.status === 'CHECKED_OUT' ? 'Completed' : pass.status}
-                        </span>
+                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                          <span className="font-mono font-semibold text-slate-700">{pass.vehicleNumber}</span>
+                          <span>•</span>
+                          <span className="font-bold text-blue-600">Slot {pass.parkingSlot?.slotNumber}</span>
+                        </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100 text-xs text-slate-500 flex items-center justify-between">
-                        <div>
-                          Slot: <strong className="text-blue-600 font-bold">{pass.parkingSlot.slotNumber}</strong>
-                          <span className="mx-2">•</span>
-                          <span>{new Date(pass.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
+                        {(pass.status === 'SCHEDULED' || pass.status === 'CHECKED_IN') && (
                           <button
-                            onClick={() => openPassModal(pass)}
-                            className="text-xs font-bold text-blue-600 hover:text-blue-700"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOneTapExtend(pass.id, 1);
+                            }}
+                            className="px-2 py-1 bg-amber-50 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-bold flex items-center gap-1"
+                            title="One-Tap Extend Stay"
                           >
-                            View Pass
+                            <Zap className="w-3 h-3 text-amber-600" />
+                            <span>Extend</span>
                           </button>
-
-                          {pass.status === 'SCHEDULED' && (
-                            <button
-                              onClick={() => handleCancelPass(pass.id)}
-                              className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              <span>Cancel</span>
-                            </button>
-                          )}
-
-                          {(pass.status === 'SCHEDULED' || pass.status === 'CHECKED_IN') && (
-                            <button
-                              onClick={() => {
-                                setSelectedPass(pass);
-                                setExtendHours(2);
-                                setActionMessage(null);
-                              }}
-                              className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-                            >
-                              Manage
-                            </button>
-                          )}
-                        </div>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
                       </div>
                     </div>
-                  ))}
+
+                    {/* Arrival Status & Time info */}
+                    <div className="text-[11px] text-slate-400 pt-1.5 border-t border-slate-100 flex items-center justify-between">
+                      <span>Valid: {new Date(pass.validUntil).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' })}</span>
+                      {pass.arrivalStatus && pass.arrivalStatus !== 'SCHEDULED' && (
+                        <span className="font-semibold text-blue-600">Status: {pass.arrivalStatus}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl p-8 text-center border border-slate-200/80 shadow-sm text-xs text-slate-400">
+                <Car className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-500" />
+                <p>No visitor passes found for this filter.</p>
               </div>
             )}
           </div>
@@ -830,200 +1143,132 @@ export default function ResidentPortal() {
 
       </div>
 
-      {/* SCREEN 3: DIGITAL PASS GENERATED MODAL / VIEW */}
-      {confirmedPass && (
+      {/* MODAL: JOIN WAITLIST (Feature 1) */}
+      {waitlistModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
-            {/* Top Close */}
-            <button
-              onClick={() => setConfirmedPass(null)}
-              className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:text-slate-800"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {/* Header */}
-            <div className="text-center mb-3">
-              <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-0.5">
-                VISITOR PASS
-              </div>
-              <div className="flex items-center justify-center gap-2">
-                <span className="font-mono text-sm font-bold text-slate-900">{confirmedPass.passCode}</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                  {confirmedPass.status || 'Active'}
-                </span>
-              </div>
-              <div className="text-xs text-slate-500 font-medium mt-0.5">
-                ParkPass • {user.societyName}
-              </div>
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl relative">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-base font-bold text-slate-900">Join Parking Waitlist</h3>
+              <button onClick={() => setWaitlistModalOpen(false)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
             </div>
-
-            {/* Center QR Code */}
-            <div className="p-3 bg-white rounded-2xl border-2 border-slate-100 shadow-sm text-center mb-3">
-              {confirmedQrUrl && (
-                <img
-                  src={confirmedQrUrl}
-                  alt="Visitor Pass QR"
-                  className="w-44 h-44 mx-auto rounded-lg"
-                />
-              )}
-            </div>
-
-            {/* Pass Details Card */}
-            <div className="bg-slate-50 rounded-2xl p-3.5 border border-slate-100 space-y-1.5 text-xs mb-4">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Visitor:</span>
-                <span className="font-bold text-slate-900">{confirmedPass.visitorName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Vehicle:</span>
-                <span className="font-mono font-bold text-slate-900">{confirmedPass.vehicleNumber}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Destination:</span>
-                <span className="font-semibold text-slate-800">
-                  {user.towerName || 'Tower A'} — Flat {user.flatNumber || 'A-804'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Parking Slot:</span>
-                <span className="font-extrabold text-blue-600 text-sm">
-                  {confirmedPass.parkingSlot?.slotNumber}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Arrival:</span>
-                <span className="text-slate-800">
-                  {new Date(confirmedPass.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Valid Until:</span>
-                <span className="text-slate-800">
-                  {new Date(confirmedPass.validUntil).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                </span>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-center text-slate-500 mb-4">
-              Present this pass to security at the entrance.
+            <p className="text-xs text-slate-500 mb-4">
+              Enter your visitor details. As soon as any vehicle leaves, ParkPass will allocate the slot automatically.
             </p>
 
-            {/* Actions */}
-            <div className="space-y-2">
-              <a
-                href={confirmedWaLink}
-                target="_blank"
-                rel="noreferrer"
-                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 transition-colors shadow-sm"
-              >
-                <Send className="w-4 h-4" />
-                <span>Share via WhatsApp</span>
-              </a>
-
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    const passUrl = `${window.location.origin}/pass/${confirmedPass.secureToken}`;
-                    navigator.clipboard.writeText(passUrl);
-                    setCopySuccess(true);
-                    setTimeout(() => setCopySuccess(false), 2000);
-                  }}
-                  className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center justify-center gap-1.5"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span>{copySuccess ? 'Copied Link!' : 'Share Link'}</span>
-                </button>
-
-                <a
-                  href={`/pass/${confirmedPass.secureToken}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="py-2 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-semibold text-xs flex items-center justify-center gap-1"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" />
-                  <span>Open Ticket</span>
-                </a>
+            <form onSubmit={handleJoinWaitlist} className="space-y-3 text-xs">
+              <div>
+                <label className="font-semibold text-slate-600 block mb-1">Visitor Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={waitlistVisitorName}
+                  onChange={(e) => setWaitlistVisitorName(e.target.value)}
+                  placeholder="Visitor name"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-slate-900"
+                />
               </div>
 
-              {/* Direct Cancel Pass Button */}
-              {(confirmedPass.status === 'SCHEDULED' || !confirmedPass.status) && (
+              <div>
+                <label className="font-semibold text-slate-600 block mb-1">Vehicle Registration Number *</label>
+                <input
+                  type="text"
+                  required
+                  value={waitlistVehicle}
+                  onChange={(e) => setWaitlistVehicle(e.target.value.toUpperCase())}
+                  placeholder="e.g. MH 02 AB 1234"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 font-mono font-bold uppercase text-slate-900"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">Vehicle Type</label>
+                  <select
+                    value={waitlistVehicleType}
+                    onChange={(e) => setWaitlistVehicleType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white"
+                  >
+                    <option value="CAR">Car</option>
+                    <option value="TWO_WHEELER">Two-Wheeler</option>
+                    <option value="SUV">SUV</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-600 block mb-1">Duration</label>
+                  <select
+                    value={waitlistDuration}
+                    onChange={(e) => setWaitlistDuration(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-white"
+                  >
+                    <option value={2}>2 Hours</option>
+                    <option value={4}>4 Hours</option>
+                    <option value={8}>8 Hours</option>
+                    <option value={24}>24 Hours</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2">
                 <button
-                  type="button"
-                  onClick={() => {
-                    const pId = confirmedPass.id;
-                    setConfirmedPass(null);
-                    handleCancelPass(pId);
-                  }}
-                  className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  type="submit"
+                  disabled={waitlistLoading}
+                  className="w-full py-3 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold transition-colors shadow-sm"
                 >
-                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
-                  <span>Cancel Pass & Free Slot</span>
+                  {waitlistLoading ? 'Submitting...' : 'Confirm Waitlist Spot'}
                 </button>
-              )}
-            </div>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* MANAGE PASS MODAL (EXTEND / CANCEL) */}
-      {selectedPass && (
+      {/* DIGITAL PASS MODAL (Screen 3) */}
+      {confirmedPass && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl relative">
-            <h3 className="text-base font-bold text-slate-900 mb-1">Manage Visitor Pass</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              {selectedPass.visitorName} ({selectedPass.vehicleNumber}) • Slot {selectedPass.parkingSlot?.slotNumber}
-            </p>
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setConfirmedPass(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
 
-            {actionMessage && (
-              <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs">
-                {actionMessage}
+            <div className="text-center mb-4">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-2">
+                <CheckCircle2 className="w-6 h-6" />
               </div>
-            )}
+              <h3 className="text-base font-bold text-slate-900">Visitor Pass Confirmed</h3>
+              <p className="text-xs text-slate-500">Reserved slot: <strong>{confirmedPass.parkingSlot?.slotNumber}</strong></p>
+            </div>
 
-            <div className="space-y-4">
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-100">
-                <span className="text-xs font-bold text-slate-800 block mb-1">Extend Parking Duration</span>
-                <p className="text-[11px] text-slate-500 mb-2">Request extra time if slot is available.</p>
-                <div className="flex gap-2">
-                  <select
-                    value={extendHours}
-                    onChange={(e) => setExtendHours(Number(e.target.value))}
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs text-slate-900 bg-white"
-                  >
-                    <option value={1}>+ 1 Hour</option>
-                    <option value={2}>+ 2 Hours</option>
-                    <option value={4}>+ 4 Hours</option>
-                    <option value={8}>+ 8 Hours</option>
-                  </select>
-                  <button
-                    onClick={() => handleExtendPass(selectedPass.id)}
-                    disabled={actionLoading}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs"
-                  >
-                    Extend
-                  </button>
-                </div>
-              </div>
+            {/* QR Code */}
+            <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-center mb-4">
+              {confirmedQrUrl ? (
+                <img src={confirmedQrUrl} alt="Pass QR" className="w-48 h-48 mx-auto rounded-lg" />
+              ) : null}
+              <div className="font-mono font-bold text-xs text-slate-800 mt-2">{confirmedPass.passCode}</div>
+              <div className="text-[11px] text-slate-500">{confirmedPass.vehicleNumber}</div>
+            </div>
 
-              {selectedPass.status === 'SCHEDULED' && (
-                <div className="bg-red-50 p-3.5 rounded-xl border border-red-100">
-                  <span className="text-xs font-bold text-red-900 block mb-1">Cancel Visitor Pass</span>
-                  <button
-                    onClick={() => handleCancelPass(selectedPass.id)}
-                    disabled={actionLoading}
-                    className="w-full py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-xs"
-                  >
-                    Cancel Pass & Free Slot
-                  </button>
-                </div>
-              )}
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  window.open(confirmedWaLink, '_blank');
+                }}
+                className="w-full py-2.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
+              >
+                <Send className="w-4 h-4" />
+                <span>Share via WhatsApp</span>
+              </button>
 
               <button
-                onClick={() => setSelectedPass(null)}
-                className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-800"
+                type="button"
+                onClick={() => copyCoordinationLink(confirmedPass.secureToken)}
+                className="w-full py-2.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5"
               >
-                Close
+                <Copy className="w-4 h-4" />
+                <span>{copiedToken === confirmedPass.secureToken ? 'Link Copied!' : 'Copy Ticket Link'}</span>
               </button>
             </div>
           </div>
@@ -1043,6 +1288,16 @@ export default function ResidentPortal() {
             <span>Home</span>
           </button>
 
+          <button
+            onClick={() => setActiveTab('visitors')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-semibold transition-colors ${
+              activeTab === 'visitors' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Users className="w-5 h-5" />
+            <span>Visitors</span>
+          </button>
+
           {/* Elevated Book Button */}
           <button
             onClick={() => setActiveTab('book')}
@@ -1052,17 +1307,39 @@ export default function ResidentPortal() {
             <PlusCircle className="w-6 h-6" />
           </button>
 
+          {/* Waitlist Tab with counter badge */}
           <button
-            onClick={() => setActiveTab('visitors')}
-            className={`flex flex-col items-center gap-1 text-[11px] font-semibold transition-colors ${
-              activeTab === 'visitors' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+            onClick={() => setActiveTab('waitlist')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-semibold relative transition-colors ${
+              activeTab === 'waitlist' ? 'text-purple-600' : 'text-slate-400 hover:text-slate-600'
             }`}
           >
-            <Users className="w-5 h-5" />
-            <span>My Visitors</span>
+            <ListOrdered className="w-5 h-5" />
+            <span>Waitlist</span>
+            {activeWaitlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-purple-600 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                {activeWaitlistCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function SparklesIcon(props: any) {
+  return (
+    <svg
+      {...props}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
+    </svg>
   );
 }

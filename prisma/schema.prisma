@@ -27,6 +27,7 @@ model Society {
   events        VisitEvent[]
   auditLogs     AuditLog[]
   notifications Notification[]
+  waitlists     ParkingWaitlist[]
 }
 
 model Tower {
@@ -76,6 +77,7 @@ model User {
   entrySessions ParkingSession[] @relation("GuardEntrySessions")
   exitSessions  ParkingSession[] @relation("GuardExitSessions")
   notifications Notification[]
+  waitlists     ParkingWaitlist[]
 
   @@unique([societyId, phone])
   @@index([societyId])
@@ -133,6 +135,11 @@ model VisitorPass {
   validUntil      DateTime
   durationHours   Int
   status          String   @default("SCHEDULED") // SCHEDULED, CHECKED_IN, CHECKED_OUT, EXPIRED, CANCELLED, REVOKED
+  arrivalStatus   String   @default("SCHEDULED") // SCHEDULED, ON_THE_WAY, ARRIVED, DELAYED, NO_SHOW
+  etaMinutes      Int?
+  etaArrivalTime  DateTime?
+  arrivalNotes    String?
+  lastCoordination DateTime?
   rejectionReason String?
   createdAt       DateTime @default(now())
   cancelledAt     DateTime?
@@ -261,5 +268,30 @@ model Notification {
   @@index([societyId])
   @@index([userId])
   @@index([isRead])
+  @@index([createdAt])
+}
+
+model ParkingWaitlist {
+  id              String   @id @default(uuid())
+  societyId       String
+  residentId      String
+  visitorName     String
+  visitorPhone    String?
+  vehicleNumber   String
+  vehicleType     String   @default("CAR")
+  visitorCategory String   @default("GUEST")
+  durationHours   Int      @default(4)
+  status          String   @default("WAITING") // WAITING, ALLOCATED, CANCELLED, EXPIRED
+  priority        Int      @default(0)
+  allocatedPassId String?
+  allocatedSlotId String?
+  createdAt       DateTime @default(now())
+  notifiedAt      DateTime?
+
+  society         Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  resident        User     @relation(fields: [residentId], references: [id], onDelete: Cascade)
+
+  @@index([societyId, status])
+  @@index([residentId])
   @@index([createdAt])
 }

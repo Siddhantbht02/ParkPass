@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { prisma } from '../prisma';
 import { AllocationService } from '../services/allocation.service';
 import { NotificationService } from '../services/notification.service';
+import { WaitlistService } from '../services/waitlist.service';
 import { z } from 'zod';
 
 const VerifyPassSchema = z.object({
@@ -117,6 +118,9 @@ async function executeCheckoutSession({
     });
   });
 
+  // Automatically check and promote waitlist as a slot has been freed
+  WaitlistService.checkAndPromoteWaitlist(societyId, session.pass.vehicleType).catch(console.error);
+
   return {
     session,
     durationMinutes,
@@ -149,6 +153,8 @@ export async function guardRoutes(fastify: FastifyInstance) {
       totalSlots,
       recentSessions,
       gates,
+      expectedArrivals,
+      activeWaitlistCount,
     ] = await Promise.all([
       prisma.parkingSession.count({
         where: { societyId: user.societyId, status: 'ACTIVE' },
@@ -175,6 +181,24 @@ export async function guardRoutes(fastify: FastifyInstance) {
       prisma.gate.findMany({
         where: { societyId: user.societyId, isActive: true },
       }),
+      prisma.visitorPass.findMany({
+        where: {
+          societyId: user.societyId,
+          status: 'SCHEDULED',
+          validUntil: { gte: now },
+        },
+        include: {
+          parkingSlot: true,
+          resident: {
+            include: { flat: { include: { tower: true } } },
+          },
+        },
+        orderBy: [{ arrivalStatus: 'desc' }, { validFrom: 'asc' }],
+        take: 15,
+      }),
+      prisma.parkingWaitlist.count({
+        where: { societyId: user.societyId, status: 'WAITING' },
+      }),
     ]);
 
     return reply.send({
@@ -182,9 +206,13 @@ export async function guardRoutes(fastify: FastifyInstance) {
         parkedVehicles: activeSessionsCount,
         availableSlots: Math.max(0, totalSlots - activeSessionsCount),
         totalSlots,
+        activeWaitlist: activeWaitlistCount,
+        expectedToday: expectedArrivals.length,
       },
       recentSessions,
+      expectedArrivals,
       gates,
+      activeWaitlistCount,
       currentTime: now.toISOString(),
     });
   });

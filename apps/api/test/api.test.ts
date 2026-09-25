@@ -427,4 +427,141 @@ describe('ParkPass Core API & Business Rules Tests', () => {
     assert.equal(resBody.user.name, 'Siddhant B. (Owner)');
     assert.equal(resBody.user.email, 'siddhant.owner@test.com');
   });
+
+  it('12. Society Parking Waitlist: Resident can join waitlist and gets auto-promoted when slot is freed', async () => {
+    // 1. Join waitlist
+    const joinRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/waitlist',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Waitlist Visitor VIP',
+        vehicleNumber: 'MH02WL9999',
+        vehicleType: 'CAR',
+        durationHours: 3,
+      },
+    });
+    assert.equal(joinRes.statusCode, 201);
+    const joinBody = JSON.parse(joinRes.body);
+    assert.ok(joinBody.entry);
+    assert.equal(joinBody.entry.vehicleNumber, 'MH02WL9999');
+    assert.equal(joinBody.queuePosition, 1);
+
+    // 2. Fetch resident waitlist
+    const getRes = await app.inject({
+      method: 'GET',
+      url: '/api/v1/resident/waitlist',
+      headers: { authorization: `Bearer ${residentToken}` },
+    });
+    assert.equal(getRes.statusCode, 200);
+    const getBody = JSON.parse(getRes.body);
+    assert.ok(getBody.waitlist.length > 0);
+    const entry = getBody.waitlist.find((w: any) => w.vehicleNumber === 'MH02WL9999');
+    assert.ok(entry);
+    assert.equal(entry.status, 'WAITING');
+
+    // 3. Promote waitlist item directly or via slot check
+    const { WaitlistService } = await import('../src/services/waitlist.service');
+    const promoted = await WaitlistService.checkAndPromoteWaitlist(residentUser.societyId, 'CAR');
+    assert.ok(promoted);
+    assert.ok(promoted.length > 0);
+    assert.equal(promoted[0].waitlist.vehicleNumber, 'MH02WL9999');
+    assert.ok(promoted[0].pass);
+    assert.ok(promoted[0].slot);
+  });
+
+  it('13. Smart Arrival Coordination: Visitor can update ETA and arrival status to alert resident and guard', async () => {
+    // 1. Create a visitor pass
+    const passRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/visitor-passes',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Arrival Tester',
+        vehicleNumber: 'MH02AR1234',
+        vehicleType: 'CAR',
+        validFrom: new Date().toISOString(),
+        durationHours: 2,
+      },
+    });
+    assert.equal(passRes.statusCode, 201);
+    const { pass } = JSON.parse(passRes.body);
+
+    // 2. Visitor updates status: "I'm on my way" (ETA 20 mins)
+    const etaRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/visitor/pass/${pass.secureToken}/arrival-status`,
+      payload: {
+        status: 'ON_THE_WAY',
+        etaMinutes: 20,
+      },
+    });
+    assert.equal(etaRes.statusCode, 200);
+    const etaBody = JSON.parse(etaRes.body);
+    assert.equal(etaBody.pass.arrivalStatus, 'ON_THE_WAY');
+    assert.equal(etaBody.pass.etaMinutes, 20);
+
+    // 3. Visitor updates status: "I've arrived at the gate"
+    const arriveRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/visitor/pass/${pass.secureToken}/arrival-status`,
+      payload: {
+        status: 'ARRIVED',
+      },
+    });
+    assert.equal(arriveRes.statusCode, 200);
+    const arriveBody = JSON.parse(arriveRes.body);
+    assert.equal(arriveBody.pass.arrivalStatus, 'ARRIVED');
+
+    // 4. Verify public pass details reflect arrival status
+    const publicPassRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/visitor/pass/${pass.secureToken}`,
+    });
+    assert.equal(publicPassRes.statusCode, 200);
+    const publicPassBody = JSON.parse(publicPassRes.body);
+    assert.equal(publicPassBody.pass.arrivalStatus, 'ARRIVED');
+  });
+
+  it('14. One-Tap Visitor Extension: Resident can extend parking and receives expiry alert', async () => {
+    // 1. Create a pass
+    const passRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/visitor-passes',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Extension Tester',
+        vehicleNumber: 'MH02EX5678',
+        vehicleType: 'CAR',
+        validFrom: new Date().toISOString(),
+        durationHours: 2,
+      },
+    });
+    assert.equal(passRes.statusCode, 201);
+    const { pass } = JSON.parse(passRes.body);
+
+    // 2. Trigger 15-minute expiry alert simulation
+    const alertRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/simulate-expiry-alert',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: { passId: pass.id },
+    });
+    assert.equal(alertRes.statusCode, 200);
+    const alertBody = JSON.parse(alertRes.body);
+    assert.ok(alertBody.notification);
+    assert.equal(alertBody.notification.type, 'EXPIRING_SOON');
+
+    // 3. Perform One-Tap extension (+2 hours)
+    const extendRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/resident/visitor-passes/${pass.id}/extend`,
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: { additionalHours: 2 },
+    });
+    assert.equal(extendRes.statusCode, 200);
+    const extendBody = JSON.parse(extendRes.body);
+    assert.equal(extendBody.success, true);
+    assert.ok(extendBody.slotNumber);
+  });
 });

@@ -18,6 +18,10 @@ import {
   ShieldCheck,
   Send,
   Trash2,
+  Navigation,
+  Compass,
+  Check,
+  AlertTriangle,
 } from 'lucide-react';
 
 export default function VisitorPassPage() {
@@ -28,6 +32,9 @@ export default function VisitorPassPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [updatingArrival, setUpdatingArrival] = useState(false);
+  const [arrivalMessage, setArrivalMessage] = useState<string | null>(null);
+  const [showEtaSelector, setShowEtaSelector] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
 
   const handleCancelPass = async () => {
@@ -45,6 +52,34 @@ export default function VisitorPassPage() {
       alert('Error cancelling pass: ' + (err.message || 'Failed to cancel'));
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const updateArrivalStatus = async (status: 'ON_THE_WAY' | 'ARRIVED' | 'DELAYED', etaMinutes?: number) => {
+    setUpdatingArrival(true);
+    setArrivalMessage(null);
+    try {
+      const res = await fetchApi<{ success: boolean; message: string; pass: any }>(
+        `/api/v1/visitor/pass/${token}/arrival-status`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ status, etaMinutes }),
+        }
+      );
+      setPass((prev: any) => ({
+        ...prev,
+        arrivalStatus: res.pass.arrivalStatus,
+        etaMinutes: res.pass.etaMinutes,
+        etaArrivalTime: res.pass.etaArrivalTime,
+        lastCoordination: res.pass.lastCoordination,
+      }));
+      setArrivalMessage(res.message);
+      setShowEtaSelector(false);
+      setTimeout(() => setArrivalMessage(null), 5000);
+    } catch (err: any) {
+      alert('Could not update arrival status: ' + (err.message || 'Network error'));
+    } finally {
+      setUpdatingArrival(false);
     }
   };
 
@@ -82,36 +117,6 @@ export default function VisitorPassPage() {
     setTimeout(() => setCopied(false), 2500);
   };
 
-  const copyInstructions = () => {
-    if (!pass) return;
-    const arrivalDate = new Date(pass.validFrom).toLocaleTimeString('en-IN', {
-      hour: '2-digit',
-      minute: '2-digit',
-      timeZone: 'Asia/Kolkata',
-    });
-    const validUntilDate = new Date(pass.validUntil).toLocaleString('en-IN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZone: 'Asia/Kolkata',
-    });
-
-    const text = `PARKPASS - VISITOR ACCESS TICKET
-Society: ${pass.societyName}
-Visitor: ${pass.visitorName}
-Vehicle: ${pass.vehicleNumber}
-Destination: ${pass.towerName}, Flat ${pass.flatNumber}
-Assigned Slot: ${pass.slotNumber}
-Expected Arrival: ${arrivalDate}
-Valid Until: ${validUntilDate}
-
-Show this QR pass at the security gate:
-${window.location.href}`;
-
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
-
   const shareWhatsApp = () => {
     if (!pass) return;
     const arrivalDate = new Date(pass.validFrom).toLocaleTimeString('en-IN', {
@@ -132,7 +137,7 @@ Parking Slot: ${pass.slotNumber}
 Arrival: ${arrivalDate}
 Valid Until: ${validUntilDate}
 
-Please show this digital pass & QR code to security at the gate:
+Show this digital pass & QR code to security at the gate:
 ${window.location.href}`;
 
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
@@ -146,7 +151,7 @@ ${window.location.href}`;
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-slate-100">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
           <p className="text-xs text-slate-600 font-medium">Loading visitor parking pass...</p>
         </div>
       </div>
@@ -208,13 +213,13 @@ ${window.location.href}`;
 
   return (
     <div className="min-h-screen bg-slate-100 py-6 px-4 sm:px-6 flex flex-col items-center justify-center">
-      {/* Top Banner on Mobile */}
+      {/* Top Banner */}
       <div className="w-full max-w-sm mb-4 flex items-center justify-between text-xs text-slate-500">
         <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-          <Car className="w-4 h-4 text-emerald-600" />
+          <Car className="w-4 h-4 text-blue-600" />
           <span>ParkPass Digital Ticket</span>
         </div>
-        <div className="text-[11px] font-mono">{pass.passCode}</div>
+        <div className="text-[11px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-slate-200">{pass.passCode}</div>
       </div>
 
       {/* Access Ticket Card */}
@@ -238,6 +243,104 @@ ${window.location.href}`;
           {getStatusBadge(pass.status)}
         </div>
 
+        {/* Smart Arrival Coordination Box (Feature 3) */}
+        {pass.status === 'SCHEDULED' && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900">
+                <Navigation className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                <span>Smart Arrival Coordination</span>
+              </div>
+              {pass.arrivalStatus === 'ARRIVED' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Arrived at Gate
+                </span>
+              )}
+              {pass.arrivalStatus === 'ON_THE_WAY' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full flex items-center gap-1">
+                  <Compass className="w-3 h-3" /> On Way (~{pass.etaMinutes || 15}m)
+                </span>
+              )}
+              {pass.arrivalStatus === 'DELAYED' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full">
+                  Delayed (~{pass.etaMinutes}m)
+                </span>
+              )}
+              {pass.arrivalStatus === 'SCHEDULED' && (
+                <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 text-slate-700 rounded-full">
+                  Expected {arrivalFormatted}
+                </span>
+              )}
+            </div>
+
+            <p className="text-[11px] text-blue-800/80 mb-3 leading-tight">
+              Keep resident and gate security updated with your live arrival status:
+            </p>
+
+            {/* Quick Action Buttons */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowEtaSelector(!showEtaSelector)}
+                disabled={updatingArrival}
+                className="py-2 px-2.5 rounded-xl bg-white border border-blue-200 hover:border-blue-400 text-blue-700 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+              >
+                <Compass className="w-3.5 h-3.5 text-blue-600" />
+                <span>{pass.arrivalStatus === 'ON_THE_WAY' ? 'Update ETA' : "I'm on my way"}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => updateArrivalStatus('ARRIVED')}
+                disabled={updatingArrival || pass.arrivalStatus === 'ARRIVED'}
+                className={`py-2 px-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 ${
+                  pass.arrivalStatus === 'ARRIVED'
+                    ? 'bg-emerald-600 text-white cursor-default'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                }`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{pass.arrivalStatus === 'ARRIVED' ? "At Gate ✓" : "I've arrived"}</span>
+              </button>
+            </div>
+
+            {/* ETA Selector Dropdown Modal */}
+            {showEtaSelector && (
+              <div className="mt-2.5 p-2.5 bg-white rounded-xl border border-blue-200 shadow-md">
+                <div className="text-[11px] font-bold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span>Select your estimated arrival time:</span>
+                  <button onClick={() => setShowEtaSelector(false)} className="text-slate-400 hover:text-slate-600 text-xs font-bold">✕</button>
+                </div>
+                <div className="grid grid-cols-4 gap-1.5 text-xs font-bold">
+                  {[10, 20, 30, 45].map((mins) => (
+                    <button
+                      key={mins}
+                      onClick={() => updateArrivalStatus('ON_THE_WAY', mins)}
+                      className="py-1.5 px-1 rounded-lg bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 text-center transition-colors"
+                    >
+                      {mins}m
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => updateArrivalStatus('DELAYED', 45)}
+                  className="w-full mt-2 py-1 text-[11px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-50 rounded-lg text-center"
+                >
+                  Running Late? Notify Guard (+45m grace)
+                </button>
+              </div>
+            )}
+
+            {/* Confirmation Feedback */}
+            {arrivalMessage && (
+              <div className="mt-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-semibold flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                <span>{arrivalMessage}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Ticket Body */}
         <div className="p-5 space-y-4">
           {/* Key Details Grid */}
@@ -260,7 +363,7 @@ ${window.location.href}`;
             </div>
 
             <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-              <span className="text-[11px] text-blue-700 font-medium block">Parking Slot</span>
+              <span className="text-[11px] text-blue-700 font-medium block">Assigned Bay</span>
               <span className="font-black text-blue-600 text-base">{pass.slotNumber}</span>
             </div>
           </div>
