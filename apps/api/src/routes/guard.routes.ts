@@ -592,18 +592,22 @@ export async function guardRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify resident
+      // The Visitor Handover: When a visitor enters, ParkPass automatically sends the resident a notification: "Your visitor has arrived."
       await tx.notification.create({
         data: {
           societyId: user.societyId,
           userId: pass.residentId,
-          title: 'Visitor Arrived & Parked',
-          message: `${pass.visitorName} (${pass.vehicleNumber}) has entered through gate and parked at ${pass.parkingSlot.slotNumber}.`,
-          type: 'ENTRY',
+          title: 'The Visitor Handover',
+          message: `Your visitor has arrived: ${pass.visitorName} (${pass.vehicleNumber}) has entered through gate and parked at Bay ${pass.parkingSlot.slotNumber}.`,
+          type: 'VISITOR_ARRIVED',
           metadata: JSON.stringify({
+            handover: true,
             passId: pass.id,
             sessionId: newSession.id,
+            visitorName: pass.visitorName,
+            vehicleNumber: pass.vehicleNumber,
             slotNumber: pass.parkingSlot.slotNumber,
+            arrivedAt: now.toISOString(),
           }),
         },
       });
@@ -719,14 +723,23 @@ export async function guardRoutes(fastify: FastifyInstance) {
         },
       });
 
-      // Notify resident
+      // The Visitor Handover
       await tx.notification.create({
         data: {
           societyId: user.societyId,
           userId: resident.id,
-          title: 'Walk-in Visitor Registered',
-          message: `${data.visitorName} (${normalizedVehicle}) has arrived at gate and has been assigned parking slot ${slot.slotNumber}.`,
-          type: 'ENTRY',
+          title: 'The Visitor Handover',
+          message: `Your visitor has arrived: ${data.visitorName} (${normalizedVehicle}) has arrived at gate and has been assigned parking slot ${slot.slotNumber}.`,
+          type: 'VISITOR_ARRIVED',
+          metadata: JSON.stringify({
+            handover: true,
+            passId: pass.id,
+            sessionId: newSession.id,
+            visitorName: data.visitorName,
+            vehicleNumber: normalizedVehicle,
+            slotNumber: slot.slotNumber,
+            arrivedAt: now.toISOString(),
+          }),
         },
       });
 

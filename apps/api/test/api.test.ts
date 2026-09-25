@@ -611,4 +611,60 @@ describe('ParkPass Core API & Business Rules Tests', () => {
     const getData = JSON.parse(getRes.body);
     assert.equal(getData.pass.status, 'CANCELLED');
   });
+
+  it('16. The Visitor Handover: When a visitor enters, ParkPass automatically sends the resident a notification "Your visitor has arrived"', async () => {
+    // 1. Create a pass
+    const passRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/visitor-passes',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Kunal Singhania',
+        vehicleNumber: 'MH02KS7777',
+        vehicleType: 'CAR',
+        validFrom: new Date().toISOString(),
+        durationHours: 3,
+      },
+    });
+    assert.equal(passRes.statusCode, 201);
+    const { pass } = JSON.parse(passRes.body);
+
+    // 2. Guard confirms entry of vehicle
+    const entryRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/guard/confirm-entry',
+      headers: { authorization: `Bearer ${guardToken}` },
+      payload: { passId: pass.id },
+    });
+    assert.equal(entryRes.statusCode, 200);
+    const entryData = JSON.parse(entryRes.body);
+    assert.equal(entryData.success, true);
+
+    // 3. Verify resident received "The Visitor Handover" notification
+    const notifRes = await app.inject({
+      method: 'GET',
+      url: '/api/v1/resident/notifications',
+      headers: { authorization: `Bearer ${residentToken}` },
+    });
+    assert.equal(notifRes.statusCode, 200);
+    const notifData = JSON.parse(notifRes.body);
+    const handoverNotif = notifData.notifications.find(
+      (n: any) => n.title === 'The Visitor Handover' && n.message.includes('Your visitor has arrived')
+    );
+    assert.ok(handoverNotif, 'Expected The Visitor Handover notification to be created');
+    assert.ok(handoverNotif.message.includes('Kunal Singhania'));
+    assert.ok(handoverNotif.message.includes('MH02KS7777'));
+
+    // 4. Test simulate-handover endpoint
+    const simRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/simulate-handover',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: { passId: pass.id },
+    });
+    assert.equal(simRes.statusCode, 200);
+    const simData = JSON.parse(simRes.body);
+    assert.equal(simData.success, true);
+    assert.equal(simData.message, 'Your visitor has arrived.');
+  });
 });

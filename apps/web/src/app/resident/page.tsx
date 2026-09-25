@@ -94,6 +94,9 @@ export default function ResidentPortal() {
   // One-Tap Extension & Expiry state
   const [extendingPassId, setExtendingPassId] = useState<string | null>(null);
   const [simulatingExpiry, setSimulatingExpiry] = useState(false);
+  const [simulatingHandover, setSimulatingHandover] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [dismissedHandovers, setDismissedHandovers] = useState<string[]>([]);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   // Waitlist State
@@ -109,6 +112,17 @@ export default function ResidentPortal() {
       router.push('/login');
     }
   }, [user, isLoading, router]);
+
+  // Real-time notification & arrival polling
+  useEffect(() => {
+    if (!user) return;
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadDashboard();
+      }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   // Load Dashboard Data
   const loadDashboard = async () => {
@@ -263,6 +277,40 @@ export default function ResidentPortal() {
     }
   };
 
+  // Simulate The Visitor Handover ("Your visitor has arrived")
+  const handleSimulateHandover = async (passId?: string) => {
+    try {
+      setSimulatingHandover(true);
+      const res = await fetchApi<{ success: boolean; message: string; notification: any }>(
+        '/api/v1/resident/simulate-handover',
+        {
+          method: 'POST',
+          body: JSON.stringify({ passId }),
+        }
+      );
+      await loadDashboard();
+      alert(`🎉 The Visitor Handover:\n"${res.message || 'Your visitor has arrived.'}"\n\nNotification delivered to resident portal!`);
+    } catch (err: any) {
+      alert(err.message || 'Could not simulate visitor handover');
+    } finally {
+      setSimulatingHandover(false);
+    }
+  };
+
+  // Dismiss / Mark Notification as Read
+  const handleDismissNotification = async (notificationId: string) => {
+    try {
+      setDismissedHandovers((prev) => [...prev, notificationId]);
+      await fetchApi(`/api/v1/resident/notifications/${notificationId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      await loadDashboard();
+    } catch (err) {
+      console.error('Failed to dismiss notification:', err);
+    }
+  };
+
   // Join Waitlist Handler
   const handleJoinWaitlist = async (e?: React.FormEvent, customPayload?: any) => {
     if (e) e.preventDefault();
@@ -382,12 +430,64 @@ export default function ResidentPortal() {
 
   const activeWaitlistCount = dashboardData?.stats?.activeWaitlist ?? 0;
   const expiringPasses = dashboardData?.expiringPasses || [];
+  const allNotifications = dashboardData?.notifications || [];
+  const arrivalNotifications = allNotifications.filter(
+    (n: any) =>
+      (n.type === 'VISITOR_ARRIVED' || n.title?.includes('Handover') || n.title?.includes('Visitor Arrived')) &&
+      !dismissedHandovers.includes(n.id) &&
+      !n.isRead
+  );
+  const unreadNotifications = allNotifications.filter((n: any) => !n.isRead);
 
   return (
     <div className="min-h-screen bg-slate-50 pb-24">
       <div className="max-w-md mx-auto px-4 pt-5 pb-6">
 
-        {/* 1. ONE-TAP VISITOR EXTENSION: 15-MINUTE WARNING BANNER (Feature 2) */}
+        {/* 1. THE VISITOR HANDOVER: Real-time Arrival Alert Banner ("Your visitor has arrived.") */}
+        {arrivalNotifications.length > 0 && (
+          <div className="mb-4 bg-gradient-to-r from-emerald-600 to-teal-600 rounded-3xl p-4 text-white shadow-lg shadow-emerald-600/25 border border-emerald-400 animate-in fade-in duration-300">
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5 text-white animate-pulse" />
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-widest font-extrabold text-emerald-200">
+                    The Visitor Handover
+                  </div>
+                  <h4 className="text-sm font-extrabold leading-tight">
+                    Your visitor has arrived!
+                  </h4>
+                </div>
+              </div>
+              <span className="text-[10px] font-bold bg-white/20 px-2 py-0.5 rounded-full shrink-0">
+                Gate Entry Verified
+              </span>
+            </div>
+
+            {arrivalNotifications.map((notif: any) => (
+              <div key={notif.id} className="mt-2 bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/20">
+                <p className="text-xs font-semibold text-white mb-2 leading-relaxed">
+                  {notif.message}
+                </p>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-emerald-100 font-medium">
+                    {new Date(notif.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleDismissNotification(notif.id)}
+                    className="px-3 py-1 bg-white text-emerald-900 font-bold text-xs rounded-xl hover:bg-emerald-50 active:scale-95 transition-all shadow-sm"
+                  >
+                    Acknowledge ✓
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 2. ONE-TAP VISITOR EXTENSION: 15-MINUTE WARNING BANNER (Feature 2) */}
         {expiringPasses.length > 0 && (
           <div className="mb-4 bg-gradient-to-r from-amber-500 to-orange-500 rounded-3xl p-4 text-white shadow-lg shadow-orange-500/20 border border-orange-400 animate-in fade-in duration-300">
             <div className="flex items-start justify-between gap-2 mb-2">
@@ -447,19 +547,41 @@ export default function ResidentPortal() {
                 </h1>
                 <p className="text-xs text-slate-500 font-medium">{currentDateStr}</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => handleSimulateHandover()}
+                  disabled={simulatingHandover}
+                  className="px-2 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-bold flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors"
+                  title="Simulate 'Your visitor has arrived' notification"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Test Arrival</span>
+                </button>
                 <button
                   onClick={() => handleSimulateExpiry()}
                   disabled={simulatingExpiry}
-                  className="px-2.5 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-[11px] font-bold flex items-center gap-1 shadow-sm hover:bg-orange-100 transition-colors"
+                  className="px-2 py-1.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-700 text-[10px] font-bold flex items-center gap-1 shadow-sm hover:bg-orange-100 transition-colors"
                   title="Simulate 15-Minute Expiry Alert"
                 >
                   <Zap className="w-3.5 h-3.5 text-orange-600" />
-                  <span>Test Expiry Alert</span>
+                  <span>Test Expiry</span>
+                </button>
+                {/* Notification Bell */}
+                <button
+                  onClick={() => setNotificationsOpen(true)}
+                  className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-sm relative"
+                  title="Notification Center"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unreadNotifications.length > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                      {unreadNotifications.length}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={loadDashboard}
-                  className="w-9 h-9 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-sm"
+                  className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900 shadow-sm"
                   title="Refresh"
                 >
                   <RefreshCw className={`w-4 h-4 ${loadingDashboard ? 'animate-spin' : ''}`} />
@@ -1358,6 +1480,95 @@ export default function ResidentPortal() {
                   <span>{actionLoading ? 'Cancelling...' : 'Cancel Pass & Free Slot'}</span>
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTIFICATION CENTER MODAL */}
+      {notificationsOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 border border-slate-200 shadow-2xl relative max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Notifications</h3>
+                  <p className="text-[11px] text-slate-500">Live gate handovers & parking alerts</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setNotificationsOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+              {allNotifications.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs">
+                  <Bell className="w-8 h-8 mx-auto mb-2 opacity-30 text-slate-500" />
+                  <p>No notifications yet.</p>
+                </div>
+              ) : (
+                allNotifications.map((notif: any) => {
+                  const isArrival = notif.type === 'VISITOR_ARRIVED' || notif.title?.includes('Handover') || notif.title?.includes('Visitor Arrived');
+                  const isExpiry = notif.type === 'EXPIRING_SOON';
+                  return (
+                    <div
+                      key={notif.id}
+                      className={`p-3 rounded-2xl border transition-all text-xs ${
+                        isArrival
+                          ? 'bg-emerald-50/80 border-emerald-200 text-emerald-950'
+                          : isExpiry
+                          ? 'bg-amber-50/80 border-amber-200 text-amber-950'
+                          : 'bg-slate-50 border-slate-200/80 text-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-1 mb-1">
+                        <span className={`font-bold text-[11px] uppercase tracking-wide ${
+                          isArrival ? 'text-emerald-700' : isExpiry ? 'text-amber-700' : 'text-slate-600'
+                        }`}>
+                          {notif.title}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          {new Date(notif.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-xs leading-relaxed font-medium">
+                        {notif.message}
+                      </p>
+                      {!notif.isRead && (
+                        <div className="mt-2 flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleDismissNotification(notif.id)}
+                            className="text-[10px] font-bold text-slate-500 hover:text-slate-800 underline"
+                          >
+                            Mark as read
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-3 mt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+              <span className="text-slate-400 text-[11px]">
+                {unreadNotifications.length} unread alert{unreadNotifications.length === 1 ? '' : 's'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen(false)}
+                className="py-1.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

@@ -668,6 +668,57 @@ export async function residentRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // POST /simulate-handover (The Visitor Handover: "Your visitor has arrived")
+  fastify.post('/simulate-handover', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const body = (request.body as any) || {};
+
+    let targetPass: any = null;
+    if (body.passId) {
+      targetPass = await prisma.visitorPass.findFirst({
+        where: { id: body.passId, residentId: user.id },
+        include: { parkingSlot: true },
+      });
+    }
+
+    if (!targetPass) {
+      targetPass = await prisma.visitorPass.findFirst({
+        where: { residentId: user.id },
+        include: { parkingSlot: true },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const visitorName = targetPass?.visitorName || 'Rohit Verma';
+    const vehicleNumber = targetPass?.vehicleNumber || 'MH02BV4455';
+    const slotNumber = targetPass?.parkingSlot?.slotNumber || 'P-06';
+    const now = new Date();
+
+    const notification = await prisma.notification.create({
+      data: {
+        societyId: user.societyId,
+        userId: user.id,
+        title: 'The Visitor Handover',
+        message: `Your visitor has arrived: ${visitorName} (${vehicleNumber}) has entered through gate and parked at Bay ${slotNumber}.`,
+        type: 'VISITOR_ARRIVED',
+        metadata: JSON.stringify({
+          handover: true,
+          passId: targetPass?.id,
+          visitorName,
+          vehicleNumber,
+          slotNumber,
+          arrivedAt: now.toISOString(),
+        }),
+      },
+    });
+
+    return reply.send({
+      success: true,
+      message: 'Your visitor has arrived.',
+      notification,
+    });
+  });
+
   // GET /notifications
   fastify.get('/notifications', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = (request as any).user;
