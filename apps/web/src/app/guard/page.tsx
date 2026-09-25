@@ -1,0 +1,988 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth-context';
+import { fetchApi } from '@/lib/api';
+import {
+  QrCode,
+  UserPlus,
+  Car,
+  History,
+  ShieldCheck,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Search,
+  Clock,
+  Building,
+  Camera,
+  StopCircle,
+  RefreshCw,
+  LogOut,
+  MapPin,
+  ArrowRight,
+  ArrowLeft,
+  Home,
+  Check,
+  X,
+  Phone,
+} from 'lucide-react';
+
+export default function GuardTerminal() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  // Active view: 'home' (Screen 5), 'scan' (Screen 6), 'active' (Screen 7), 'walkin' (Screen 8), 'history'
+  const [activeTab, setActiveTab] = useState<'home' | 'scan' | 'active' | 'walkin' | 'history'>('home');
+
+  // Guard Dashboard summary
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [selectedGate, setSelectedGate] = useState<string>('Main Gate');
+
+  // Screen 6: Scanner & Verification State
+  const [manualCode, setManualCode] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [scannerError, setScannerError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [confirmingEntry, setConfirmingEntry] = useState(false);
+  const scannerRef = useRef<any>(null);
+
+  // Screen 7: Active Parking & Checkout State
+  const [activeSessions, setActiveSessions] = useState<any[]>([]);
+  const [activeSearch, setActiveSearch] = useState('');
+  const [loadingActive, setLoadingActive] = useState(false);
+  const [checkoutModalSession, setCheckoutModalSession] = useState<any>(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+
+  // Screen 8: Walk-in State
+  const [walkinName, setWalkinName] = useState('');
+  const [walkinPhone, setWalkinPhone] = useState('');
+  const [walkinVehicle, setWalkinVehicle] = useState('');
+  const [walkinFlatId, setWalkinFlatId] = useState('');
+  const [walkinVehicleType, setWalkinVehicleType] = useState('CAR');
+  const [walkinCategory, setWalkinCategory] = useState('GUEST');
+  const [walkinDuration, setWalkinDuration] = useState(4);
+  const [availableFlats, setAvailableFlats] = useState<any[]>([]);
+  const [availableSlots, setAvailableSlots] = useState<any[]>([]);
+  const [walkinLoading, setWalkinLoading] = useState(false);
+  const [walkinMessage, setWalkinMessage] = useState<string | null>(null);
+
+  // History State
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push('/login');
+    }
+  }, [user, isLoading, router]);
+
+  // Load Dashboard Data
+  const loadDashboard = async () => {
+    try {
+      const data = await fetchApi('/api/v1/guard/dashboard');
+      setDashboardData(data);
+    } catch (err) {
+      console.error('Failed to load guard dashboard:', err);
+    }
+  };
+
+  // Load Active Parking
+  const loadActiveParking = async () => {
+    try {
+      setLoadingActive(true);
+      const data = await fetchApi(`/api/v1/guard/active-parking?search=${encodeURIComponent(activeSearch)}`);
+      setActiveSessions(data.sessions || []);
+    } catch (err) {
+      console.error('Failed to load active parking:', err);
+    } finally {
+      setLoadingActive(false);
+    }
+  };
+
+  // Load History
+  const loadHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      const data = await fetchApi('/api/v1/guard/entry-history');
+      setHistoryList(data.sessions || []);
+    } catch (err) {
+      console.error('Failed to load entry history:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Load Flats & Available Slots for Walk-in
+  const loadFlatsAndSlots = async () => {
+    try {
+      const [flatsData, slotsData] = await Promise.all([
+        fetchApi('/api/v1/admin/flats'),
+        fetchApi('/api/v1/resident/parking-availability?durationHours=4'),
+      ]);
+      setAvailableFlats(flatsData.flats || []);
+      if (flatsData.flats?.length > 0 && !walkinFlatId) {
+        setWalkinFlatId(flatsData.flats[0].id);
+      }
+      setAvailableSlots(slotsData.slots || []);
+    } catch (err) {
+      console.error('Failed to load flats & slots:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      loadDashboard();
+      loadFlatsAndSlots();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (activeTab === 'active') {
+      loadActiveParking();
+    } else if (activeTab === 'history') {
+      loadHistory();
+    } else if (activeTab === 'walkin') {
+      loadFlatsAndSlots();
+    }
+  }, [activeTab, activeSearch]);
+
+  useEffect(() => {
+    return () => {
+      stopCameraScanner();
+    };
+  }, [activeTab]);
+
+  // Camera Scanner using html5-qrcode
+  const startCameraScanner = async () => {
+    try {
+      setScannerError(null);
+      setIsScanning(true);
+
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const devices = await Html5Qrcode.getCameras();
+
+      if (!devices || devices.length === 0) {
+        setScannerError('No camera detected. Please use manual code verification.');
+        setIsScanning(false);
+        return;
+      }
+
+      const html5QrCode = new Html5Qrcode('guard-qr-reader');
+      scannerRef.current = html5QrCode;
+
+      await html5QrCode.start(
+        devices[0].id,
+        { fps: 10, qrbox: { width: 240, height: 240 } },
+        (decodedText) => {
+          stopCameraScanner();
+          handleVerify(decodedText);
+        },
+        () => {}
+      );
+    } catch (err: any) {
+      console.error('Camera error:', err);
+      setScannerError(err.message || 'Camera permission required.');
+      setIsScanning(false);
+    }
+  };
+
+  const stopCameraScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (err) {}
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  // Verify Pass Code / Token
+  const handleVerify = async (codeToVerify: string) => {
+    const code = codeToVerify.trim();
+    if (!code) return;
+
+    setVerifying(true);
+    setVerifyResult(null);
+
+    try {
+      const res = await fetchApi('/api/v1/guard/verify-pass', {
+        method: 'POST',
+        body: JSON.stringify({ qrData: code }),
+      });
+      setVerifyResult(res);
+    } catch (err: any) {
+      setVerifyResult({
+        isValid: false,
+        code: 'NETWORK_ERROR',
+        message: err.message || 'Pass verification failed.',
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Confirm Vehicle Entry
+  const handleConfirmEntry = async (passId: string) => {
+    setConfirmingEntry(true);
+    try {
+      const res = await fetchApi('/api/v1/guard/confirm-entry', {
+        method: 'POST',
+        body: JSON.stringify({ passId }),
+      });
+
+      alert(`✅ Entry confirmed! Assigned Slot: ${verifyResult?.pass?.slotNumber}. Vehicle allowed inside.`);
+      setVerifyResult(null);
+      setManualCode('');
+      loadDashboard();
+      setActiveTab('active');
+    } catch (err: any) {
+      alert(`Entry confirmation failed: ${err.message}`);
+    } finally {
+      setConfirmingEntry(false);
+    }
+  };
+
+  // Check out Vehicle
+  const handleCheckout = async (sessionId: string) => {
+    setCheckingOut(true);
+    try {
+      const res = await fetchApi(`/api/v1/guard/checkout/${sessionId}`, {
+        method: 'POST',
+      });
+      alert(`✅ ${res.message}`);
+      setCheckoutModalSession(null);
+      loadActiveParking();
+      loadDashboard();
+    } catch (err: any) {
+      alert(`Checkout failed: ${err.message}`);
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  // Submit Walk-in
+  const handleWalkinSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setWalkinLoading(true);
+    setWalkinMessage(null);
+
+    try {
+      const res = await fetchApi('/api/v1/guard/walk-in', {
+        method: 'POST',
+        body: JSON.stringify({
+          visitorName: walkinName.trim(),
+          visitorPhone: walkinPhone.trim() || undefined,
+          vehicleNumber: walkinVehicle.trim().toUpperCase(),
+          flatId: walkinFlatId,
+          vehicleType: walkinVehicleType,
+          visitorCategory: walkinCategory,
+          durationHours: Number(walkinDuration),
+        }),
+      });
+
+      setWalkinMessage(`✅ Walk-in registered! Slot ${res.slotNumber} assigned.`);
+      setWalkinName('');
+      setWalkinPhone('');
+      setWalkinVehicle('');
+      loadDashboard();
+      setTimeout(() => {
+        setActiveTab('active');
+        setWalkinMessage(null);
+      }, 1800);
+    } catch (err: any) {
+      setWalkinMessage(`❌ Error: ${err.message}`);
+    } finally {
+      setWalkinLoading(false);
+    }
+  };
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  const currentDateStr = new Date().toLocaleDateString('en-IN', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-24">
+      <div className="max-w-md mx-auto px-4 pt-5 pb-6">
+
+        {/* SCREEN 5: SECURITY GUARD HOME */}
+        {activeTab === 'home' && (
+          <div className="space-y-5 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[10px] uppercase font-extrabold text-blue-600 tracking-wider">
+                  ParkPass Security
+                </div>
+                <div className="text-xs text-slate-500 font-medium">
+                  {selectedGate} • {user.societyName}
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                SG
+              </div>
+            </div>
+
+            {/* Greeting */}
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight">Good evening</h1>
+              <p className="text-xs text-slate-500 font-medium">{currentDateStr}</p>
+            </div>
+
+            {/* Stat Boxes Row (Parked, Available, Total) */}
+            <div className="grid grid-cols-3 gap-2.5 text-center">
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Parked</span>
+                <div className="text-xl font-extrabold text-slate-900">
+                  {dashboardData?.stats?.parkedVehicles ?? 0}
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[11px] font-semibold text-emerald-600 block mb-0.5">Available</span>
+                <div className="text-xl font-extrabold text-emerald-600">
+                  {dashboardData?.stats?.availableSlots ?? 20}
+                </div>
+              </div>
+
+              <div className="bg-white p-3 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[11px] font-semibold text-slate-500 block mb-0.5">Total</span>
+                <div className="text-xl font-extrabold text-slate-900">
+                  {dashboardData?.stats?.totalSlots ?? 20}
+                </div>
+              </div>
+            </div>
+
+            {/* Large Hero Blue Card: Scan Visitor Pass */}
+            <div
+              onClick={() => {
+                setActiveTab('scan');
+                startCameraScanner();
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-3xl p-6 shadow-lg shadow-blue-500/25 transition-all cursor-pointer relative overflow-hidden group"
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur flex items-center justify-center text-white shrink-0 group-hover:scale-105 transition-transform">
+                  <QrCode className="w-8 h-8" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black tracking-tight">Scan Visitor Pass</h2>
+                  <p className="text-xs text-blue-100 font-medium mt-0.5">Verify entry in seconds</p>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-white/15 flex items-center justify-between text-xs text-blue-100">
+                <span>Tap to launch smartphone scanner</span>
+                <ArrowRight className="w-4 h-4 text-white" />
+              </div>
+            </div>
+
+            {/* Quick Actions Row */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setActiveTab('walkin')}
+                className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-400 transition-all text-left flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                  <UserPlus className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Walk-in</div>
+                  <div className="text-[10px] text-slate-500">Unscheduled visitor</div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('active')}
+                className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-400 transition-all text-left flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+                  <Car className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900">Active Parking</div>
+                  <div className="text-[10px] text-slate-500">Vehicles inside</div>
+                </div>
+              </button>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Recent Activity</h3>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                >
+                  View all
+                </button>
+              </div>
+
+              {dashboardData?.recentSessions && dashboardData.recentSessions.length > 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm divide-y divide-slate-100">
+                  {dashboardData.recentSessions.slice(0, 4).map((session: any) => (
+                    <div key={session.id} className="p-3.5 flex items-center justify-between text-xs">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-900">
+                            {session.pass.vehicleNumber}
+                          </span>
+                          <span className="text-slate-600 font-medium">({session.pass.visitorName})</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Slot {session.parkingSlot.slotNumber} • Flat {session.pass.resident.flat?.flatNumber}
+                        </div>
+                      </div>
+                      <span className="font-semibold text-slate-500 text-[11px]">
+                        {new Date(session.actualEntryTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/80 text-center text-xs text-slate-400">
+                  No activity logged today.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SCREEN 6: SCANNER & VERIFICATION */}
+        {activeTab === 'scan' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => {
+                  stopCameraScanner();
+                  setActiveTab('home');
+                }}
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back</span>
+              </button>
+              <h2 className="text-sm font-bold text-slate-900">Scan Visitor QR Code</h2>
+              <button
+                onClick={() => setVerifyResult(null)}
+                className="text-xs text-slate-400 hover:text-slate-600"
+              >
+                Reset
+              </button>
+            </div>
+
+            {/* Scanner Viewfinder Box */}
+            <div className="bg-slate-950 rounded-3xl p-4 text-center relative overflow-hidden border border-slate-800">
+              <div
+                id="guard-qr-reader"
+                className="w-full max-w-[260px] h-[240px] mx-auto rounded-2xl bg-slate-900 flex items-center justify-center text-slate-500 text-xs overflow-hidden"
+              >
+                {!isScanning && (
+                  <div className="p-4 text-center">
+                    <Camera className="w-10 h-10 mx-auto mb-2 text-slate-500 opacity-60" />
+                    <p className="text-slate-300 font-semibold text-xs">Ready to scan QR</p>
+                    <p className="text-[11px] text-slate-500 mt-1">Point smartphone camera at pass</p>
+                  </div>
+                )}
+              </div>
+
+              {scannerError && (
+                <p className="text-xs text-amber-400 mt-2">{scannerError}</p>
+              )}
+
+              <div className="mt-3 flex justify-center gap-2">
+                {!isScanning ? (
+                  <button
+                    onClick={startCameraScanner}
+                    className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Start Camera</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopCameraScanner}
+                    className="py-2 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center gap-1.5"
+                  >
+                    <StopCircle className="w-3.5 h-3.5" />
+                    <span>Stop Camera</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Manual Code Input Fallback */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm space-y-2">
+              <label className="block text-[11px] font-semibold text-slate-600">
+                Or enter pass code manually:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
+                  placeholder="e.g. PP-95116 or pk_..."
+                  className="flex-1 px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-mono uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={() => handleVerify(manualCode)}
+                  disabled={verifying || !manualCode.trim()}
+                  className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs disabled:opacity-50"
+                >
+                  {verifying ? 'Checking...' : 'Verify'}
+                </button>
+              </div>
+            </div>
+
+            {/* VERIFICATION RESULT CARD (Screen 6 Bottom Sheet) */}
+            {verifyResult && (
+              <div
+                className={`p-5 rounded-3xl border shadow-lg animate-in fade-in zoom-in-95 duration-150 ${
+                  verifyResult.isValid
+                    ? 'bg-white border-emerald-300'
+                    : 'bg-red-50 border-red-200'
+                }`}
+              >
+                {verifyResult.isValid ? (
+                  <div className="space-y-4">
+                    {/* Header: Visitor Verified */}
+                    <div className="flex items-center gap-2.5 pb-3 border-b border-slate-100">
+                      <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+                        <Check className="w-5 h-5 stroke-[3]" />
+                      </div>
+                      <div>
+                        <div className="text-base font-extrabold text-slate-900">Visitor Verified</div>
+                        <div className="text-[11px] text-slate-500">Pass status: Active & Authorized</div>
+                      </div>
+                    </div>
+
+                    {/* Details Table */}
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Visitor:</span>
+                        <span className="font-bold text-slate-900">{verifyResult.pass.visitorName}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Vehicle No:</span>
+                        <span className="font-mono font-bold text-slate-900">{verifyResult.pass.vehicleNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Parking Slot:</span>
+                        <span className="font-black text-emerald-600 text-sm">
+                          {verifyResult.pass.slotNumber}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Destination:</span>
+                        <span className="font-semibold text-slate-800">
+                          {verifyResult.pass.towerName} — Flat {verifyResult.pass.flatNumber}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Valid Until:</span>
+                        <span className="text-slate-800">
+                          {new Date(verifyResult.pass.validUntil).toLocaleString('en-IN', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action: Confirm Entry */}
+                    <button
+                      onClick={() => handleConfirmEntry(verifyResult.pass.id)}
+                      disabled={confirmingEntry}
+                      className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>{confirmingEntry ? 'Confirming...' : 'Confirm Entry'}</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-red-700 font-bold text-xs uppercase">
+                      <XCircle className="w-5 h-5" />
+                      <span>Verification Failed</span>
+                    </div>
+                    <p className="text-xs text-red-800 font-medium">{verifyResult.message}</p>
+                    <button
+                      onClick={() => setVerifyResult(null)}
+                      className="w-full py-2.5 rounded-xl bg-red-600 text-white font-bold text-xs"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SCREEN 7: ACTIVE PARKING & CHECKOUT */}
+        {activeTab === 'active' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Header */}
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">Active Parking</h2>
+              <p className="text-xs text-slate-500">
+                {activeSessions.length} vehicles currently parked inside society.
+              </p>
+            </div>
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <input
+                type="text"
+                value={activeSearch}
+                onChange={(e) => setActiveSearch(e.target.value)}
+                placeholder="Search vehicle, flat, or visitor..."
+                className="w-full pl-10 pr-3.5 py-2.5 rounded-2xl border border-slate-200 text-xs text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Active Cards List */}
+            {loadingActive ? (
+              <div className="py-12 text-center text-xs text-slate-400">Loading active vehicles...</div>
+            ) : activeSessions.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400 bg-white rounded-2xl border border-slate-200/80">
+                No active parked vehicles found.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {activeSessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-sm font-bold text-slate-900">
+                            {session.pass.vehicleNumber}
+                          </span>
+                          {session.isOverstay && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 animate-pulse">
+                              OVERSTAY
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1">
+                          {session.pass.visitorName} • {session.pass.resident.flat?.tower.name} Flat {session.pass.resident.flat?.flatNumber}
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-xs font-black text-blue-600">
+                          Slot {session.parkingSlot.slotNumber}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          In: {new Date(session.actualEntryTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setCheckoutModalSession(session)}
+                      className="w-full py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-sm"
+                    >
+                      Check Out
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* SCREEN 8: WALK-IN REGISTRATION */}
+        {activeTab === 'walkin' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setActiveTab('home')}
+                className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back</span>
+              </button>
+              <h2 className="text-sm font-bold text-slate-900">Walk-in registration</h2>
+              <span className="text-[11px] font-semibold text-slate-400">Step 1 of 2</span>
+            </div>
+
+            {walkinMessage && (
+              <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-blue-800 text-xs font-semibold">
+                {walkinMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleWalkinSubmit} className="space-y-4">
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Visitor full name *
+                  </label>
+                  <input
+                    type="text"
+                    value={walkinName}
+                    onChange={(e) => setWalkinName(e.target.value)}
+                    placeholder="e.g. Ramesh Verma"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Visitor mobile number (optional)
+                  </label>
+                  <input
+                    type="tel"
+                    value={walkinPhone}
+                    onChange={(e) => setWalkinPhone(e.target.value)}
+                    placeholder="+91 98765 00000"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Vehicle registration number *
+                  </label>
+                  <input
+                    type="text"
+                    value={walkinVehicle}
+                    onChange={(e) => setWalkinVehicle(e.target.value.toUpperCase())}
+                    placeholder="e.g. MH 02 CD 5678"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs font-mono font-bold uppercase text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Destination flat *
+                  </label>
+                  <select
+                    value={walkinFlatId}
+                    onChange={(e) => setWalkinFlatId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 bg-white"
+                  >
+                    {availableFlats.map((flat) => (
+                      <option key={flat.id} value={flat.id}>
+                        {flat.tower?.name} — Flat {flat.flatNumber} ({flat.residents?.[0]?.name || 'Resident'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                    Vehicle type
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { key: 'TWO_WHEELER', label: 'Two-wheeler' },
+                      { key: 'CAR', label: 'Car' },
+                      { key: 'SUV', label: 'SUV' },
+                    ].map((type) => (
+                      <button
+                        key={type.key}
+                        type="button"
+                        onClick={() => setWalkinVehicleType(type.key)}
+                        className={`py-2 rounded-xl text-xs font-semibold border transition-all text-center ${
+                          walkinVehicleType === type.key
+                            ? 'bg-blue-50 border-blue-600 text-blue-700'
+                            : 'bg-white border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {type.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1.5">
+                    Parking duration
+                  </label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {[1, 2, 4, 8].map((h) => (
+                      <button
+                        key={h}
+                        type="button"
+                        onClick={() => setWalkinDuration(h)}
+                        className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                          walkinDuration === h
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {h}h
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Available Slots Preview */}
+              <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-sm space-y-2">
+                <span className="text-xs font-bold text-slate-900 uppercase tracking-wider block">
+                  Available Slots Preview
+                </span>
+                <div className="grid grid-cols-4 gap-1.5 text-center">
+                  {availableSlots.slice(0, 8).map((slot: any) => (
+                    <div
+                      key={slot.id}
+                      className="p-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-[11px] font-bold"
+                    >
+                      {slot.slotNumber}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={walkinLoading}
+                className="w-full py-3.5 px-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20 disabled:opacity-60"
+              >
+                {walkinLoading ? 'Allocating Slot & Granting Entry...' : 'Register & Enter'}
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* SCREEN HISTORY TAB */}
+        {activeTab === 'history' && (
+          <div className="space-y-4 animate-in fade-in duration-200">
+            <h2 className="text-xl font-bold text-slate-900">Entry History</h2>
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm divide-y divide-slate-100">
+              {historyList.map((item) => (
+                <div key={item.id} className="p-3.5 flex items-center justify-between text-xs">
+                  <div>
+                    <div className="font-mono font-bold text-slate-900">{item.pass.vehicleNumber}</div>
+                    <div className="text-[11px] text-slate-500">
+                      {item.pass.visitorName} • Slot {item.parkingSlot.slotNumber}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 uppercase">
+                      {item.status}
+                    </span>
+                    <div className="text-[10px] text-slate-400 mt-1">
+                      {new Date(item.actualEntryTime).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* CHECKOUT MODAL (Screen 7 Checkout Confirmation) */}
+      {checkoutModalSession && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 border border-slate-200 shadow-2xl relative animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-base font-bold text-slate-900 mb-1">Check out visitor?</h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Confirm departure to mark session complete and free the parking slot.
+            </p>
+
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-2 text-xs mb-5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Vehicle:</span>
+                <span className="font-mono font-bold text-slate-900">
+                  {checkoutModalSession.pass.vehicleNumber}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Visitor:</span>
+                <span className="font-semibold text-slate-900">
+                  {checkoutModalSession.pass.visitorName}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Parking Slot:</span>
+                <span className="font-bold text-blue-600">
+                  {checkoutModalSession.parkingSlot.slotNumber}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={() => handleCheckout(checkoutModalSession.id)}
+                disabled={checkingOut}
+                className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors"
+              >
+                {checkingOut ? 'Recording checkout...' : 'Confirm Checkout'}
+              </button>
+              <button
+                onClick={() => setCheckoutModalSession(null)}
+                className="w-full py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MOBILE BOTTOM NAVIGATION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 py-2 px-6">
+        <div className="max-w-md mx-auto flex items-center justify-around">
+          <button
+            onClick={() => setActiveTab('home')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-semibold transition-colors ${
+              activeTab === 'home' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Home className="w-5 h-5" />
+            <span>Home</span>
+          </button>
+
+          {/* Elevated Scan Button */}
+          <button
+            onClick={() => {
+              setActiveTab('scan');
+              startCameraScanner();
+            }}
+            className="w-12 h-12 -mt-5 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-lg shadow-blue-500/30 transition-transform active:scale-95"
+            title="Scan QR Pass"
+          >
+            <QrCode className="w-6 h-6" />
+          </button>
+
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`flex flex-col items-center gap-1 text-[11px] font-semibold transition-colors ${
+              activeTab === 'active' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'
+            }`}
+          >
+            <Car className="w-5 h-5" />
+            <span>Active</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

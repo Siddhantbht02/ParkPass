@@ -1,0 +1,265 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Society {
+  id            String   @id @default(uuid())
+  name          String
+  address       String
+  timezone      String   @default("Asia/Kolkata")
+  configuration String   @default("{\"maxParkingDurationHours\":48,\"residentApprovalRequired\":true,\"gracePeriodMinutes\":30,\"entryStartTime\":\"06:00\",\"entryEndTime\":\"23:00\"}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  towers        Tower[]
+  flats         Flat[]
+  users         User[]
+  gates         Gate[]
+  parkingSlots  ParkingSlot[]
+  visitorPasses VisitorPass[]
+  reservations  ParkingReservation[]
+  sessions      ParkingSession[]
+  events        VisitEvent[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+}
+
+model Tower {
+  id        String   @id @default(uuid())
+  societyId String
+  name      String
+  createdAt DateTime @default(now())
+
+  society   Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  flats     Flat[]
+
+  @@index([societyId])
+}
+
+model Flat {
+  id         String   @id @default(uuid())
+  societyId  String
+  towerId    String
+  flatNumber String
+  createdAt  DateTime @default(now())
+
+  society    Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  tower      Tower    @relation(fields: [towerId], references: [id], onDelete: Cascade)
+  residents  User[]
+
+  @@unique([societyId, towerId, flatNumber])
+  @@index([societyId])
+  @@index([towerId])
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String
+  email        String?
+  passwordHash String
+  role         String   // RESIDENT, GUARD, ADMIN
+  societyId    String
+  flatId       String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  society      Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  flat         Flat?    @relation(fields: [flatId], references: [id], onDelete: SetNull)
+  passes       VisitorPass[]
+  entrySessions ParkingSession[] @relation("GuardEntrySessions")
+  exitSessions  ParkingSession[] @relation("GuardExitSessions")
+  notifications Notification[]
+
+  @@unique([societyId, phone])
+  @@index([societyId])
+  @@index([phone])
+}
+
+model Gate {
+  id        String   @id @default(uuid())
+  societyId String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  society   Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  entrySessions ParkingSession[] @relation("EntryGate")
+  exitSessions  ParkingSession[] @relation("ExitGate")
+
+  @@index([societyId])
+}
+
+model ParkingSlot {
+  id          String   @id @default(uuid())
+  societyId   String
+  slotNumber  String
+  parkingType String   @default("CAR") // TWO_WHEELER, CAR, SUV, OTHER
+  zone        String?  // e.g. "Basement 1", "Tower A Ground"
+  floor       String?  // e.g. "B1", "G"
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  society     Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  passes      VisitorPass[]
+  reservations ParkingReservation[]
+  sessions    ParkingSession[]
+
+  @@unique([societyId, slotNumber])
+  @@index([societyId])
+  @@index([slotNumber])
+}
+
+model VisitorPass {
+  id              String   @id @default(uuid())
+  passCode        String   // e.g. "PP-78921"
+  societyId       String
+  residentId      String
+  visitorName     String
+  visitorPhone    String?
+  vehicleNumber   String
+  vehicleType     String   @default("CAR")
+  visitorCategory String   @default("GUEST")
+  secureToken     String   @unique
+  parkingSlotId   String
+  validFrom       DateTime
+  validUntil      DateTime
+  durationHours   Int
+  status          String   @default("SCHEDULED") // SCHEDULED, CHECKED_IN, CHECKED_OUT, EXPIRED, CANCELLED, REVOKED
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  cancelledAt     DateTime?
+
+  society         Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  resident        User     @relation(fields: [residentId], references: [id], onDelete: Cascade)
+  parkingSlot     ParkingSlot @relation(fields: [parkingSlotId], references: [id], onDelete: Cascade)
+  reservations    ParkingReservation[]
+  sessions        ParkingSession[]
+  events          VisitEvent[]
+
+  @@index([societyId])
+  @@index([residentId])
+  @@index([secureToken])
+  @@index([vehicleNumber])
+  @@index([status])
+  @@index([validFrom, validUntil])
+}
+
+model ParkingReservation {
+  id            String   @id @default(uuid())
+  societyId     String
+  passId        String
+  parkingSlotId String
+  startTime     DateTime
+  endTime       DateTime
+  status        String   @default("ACTIVE") // ACTIVE, CONVERTED, RELEASED, EXPIRED, CANCELLED
+  createdAt     DateTime @default(now())
+
+  society       Society     @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  pass          VisitorPass @relation(fields: [passId], references: [id], onDelete: Cascade)
+  parkingSlot   ParkingSlot @relation(fields: [parkingSlotId], references: [id], onDelete: Cascade)
+
+  @@index([societyId])
+  @@index([parkingSlotId, startTime, endTime])
+  @@index([passId])
+  @@index([status])
+}
+
+model ParkingSession {
+  id              String    @id @default(uuid())
+  societyId       String
+  passId          String
+  parkingSlotId   String
+  guardEntryId    String
+  guardExitId     String?
+  entryGateId     String?
+  exitGateId      String?
+  actualEntryTime DateTime  @default(now())
+  actualExitTime  DateTime?
+  status          String    @default("ACTIVE") // ACTIVE, COMPLETED, OVERSTAYED, RESOLVED
+  createdAt       DateTime  @default(now())
+
+  society         Society     @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  pass            VisitorPass @relation(fields: [passId], references: [id], onDelete: Cascade)
+  parkingSlot     ParkingSlot @relation(fields: [parkingSlotId], references: [id], onDelete: Cascade)
+  guardEntry      User        @relation("GuardEntrySessions", fields: [guardEntryId], references: [id])
+  guardExit       User?       @relation("GuardExitSessions", fields: [guardExitId], references: [id])
+  entryGate       Gate?       @relation("EntryGate", fields: [entryGateId], references: [id])
+  exitGate        Gate?       @relation("ExitGate", fields: [exitGateId], references: [id])
+  events          VisitEvent[]
+
+  @@index([societyId])
+  @@index([passId])
+  @@index([parkingSlotId])
+  @@index([status])
+  @@index([actualEntryTime])
+}
+
+model VisitEvent {
+  id        String   @id @default(uuid())
+  societyId String
+  passId    String
+  sessionId String?
+  eventType String   // PASS_CREATED, ENTRY_ATTEMPTED, ENTRY_CONFIRMED, ENTRY_REJECTED, OVERSTAY_DETECTED, EXIT_CONFIRMED, PASS_CANCELLED, PASS_REVOKED
+  eventTime DateTime @default(now())
+  gateId    String?
+  guardId   String?
+  metadata  String?  // JSON string
+
+  society   Society         @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  pass      VisitorPass     @relation(fields: [passId], references: [id], onDelete: Cascade)
+  session   ParkingSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([societyId])
+  @@index([passId])
+  @@index([eventType])
+  @@index([eventTime])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  societyId  String
+  actorId    String
+  actorName  String
+  actorRole  String
+  action     String
+  entityType String
+  entityId   String
+  reason     String?
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+
+  society    Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+
+  @@index([societyId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  societyId String
+  userId    String
+  title     String
+  message   String
+  type      String   @default("SYSTEM") // ENTRY, EXIT, WALK_IN_APPROVAL, OVERSTAY, SYSTEM
+  isRead    Boolean  @default(false)
+  metadata  String?  // JSON string
+  createdAt DateTime @default(now())
+
+  society   Society  @relation(fields: [societyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([societyId])
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
