@@ -17,6 +17,7 @@ import {
   Building2,
   ShieldCheck,
   Send,
+  Trash2,
 } from 'lucide-react';
 
 export default function VisitorPassPage() {
@@ -26,7 +27,26 @@ export default function VisitorPassPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
+
+  const handleCancelPass = async () => {
+    if (!confirm('Are you sure you want to cancel this visitor pass? The reserved parking slot will be freed.')) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      const res = await fetchApi<{ message: string }>(`/api/v1/visitor/pass/${token}/cancel`, {
+        method: 'POST',
+      });
+      alert('✅ ' + (res.message || 'Visitor pass cancelled successfully. Slot freed.'));
+      setPass((prev: any) => ({ ...prev, status: 'CANCELLED' }));
+    } catch (err: any) {
+      alert('Error cancelling pass: ' + (err.message || 'Failed to cancel'));
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   useEffect(() => {
     async function loadPass() {
@@ -294,32 +314,45 @@ ${window.location.href}`;
         </div>
 
         {/* Actions Footer */}
-        <div className="bg-slate-50 p-4 border-t border-slate-100 flex items-center justify-around gap-2 text-xs">
-          <button
-            onClick={shareWhatsApp}
-            className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>WhatsApp</span>
-          </button>
+        <div className="bg-slate-50 p-4 border-t border-slate-100 space-y-2.5">
+          <div className="flex items-center justify-around gap-2 text-xs">
+            <button
+              onClick={shareWhatsApp}
+              className="flex-1 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
+            </button>
 
-          <button
-            onClick={copyLink}
-            className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
-            title="Copy Pass Link"
-          >
-            <Copy className="w-3.5 h-3.5" />
-            <span>{copied ? 'Copied!' : 'Copy'}</span>
-          </button>
+            <button
+              onClick={copyLink}
+              className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
+              title="Copy Pass Link"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              <span>{copied ? 'Copied!' : 'Copy'}</span>
+            </button>
 
-          <button
-            onClick={printTicket}
-            className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
-            title="Print or Save PDF"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Print</span>
-          </button>
+            <button
+              onClick={printTicket}
+              className="py-2 px-3 rounded-xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-700 font-medium flex items-center justify-center gap-1.5 transition-colors"
+              title="Print or Save PDF"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Print</span>
+            </button>
+          </div>
+
+          {pass.status === 'SCHEDULED' && (
+            <button
+              onClick={handleCancelPass}
+              disabled={cancelling}
+              className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <span>{cancelling ? 'Cancelling Pass...' : 'Cancel Pass & Free Slot'}</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

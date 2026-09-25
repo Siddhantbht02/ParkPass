@@ -851,6 +851,73 @@ export async function guardRoutes(fastify: FastifyInstance) {
     }
   });
 
+  // POST /cancel-pass (Guard cancels pass at gate)
+  fastify.post('/cancel-pass', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = (request as any).user;
+    const { passId, reason } = (request.body as any) || {};
+
+    if (!passId) {
+      return reply.status(400).send({ error: 'passId is required' });
+    }
+
+    const pass = await prisma.visitorPass.findFirst({
+      where: { id: passId, societyId: user.societyId },
+      include: { parkingSlot: true, resident: true },
+    });
+
+    if (!pass) {
+      return reply.status(404).send({ error: 'Pass not found' });
+    }
+
+    if (pass.status === 'CHECKED_IN') {
+      return reply.status(400).send({ error: 'Cannot cancel active parked session. Use checkout instead.' });
+    }
+
+    if (pass.status !== 'SCHEDULED') {
+      return reply.status(400).send({ error: `Cannot cancel pass with status ${pass.status}` });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.visitorPass.update({
+        where: { id: pass.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      });
+
+      await tx.parkingReservation.updateMany({
+        where: { passId: pass.id, status: 'ACTIVE' },
+        data: { status: 'CANCELLED' },
+      });
+
+      await tx.visitEvent.create({
+        data: {
+          societyId: user.societyId,
+          passId: pass.id,
+          eventType: 'PASS_CANCELLED',
+          guardId: user.id,
+          metadata: JSON.stringify({
+            cancelledByGuard: user.name,
+            reason: reason || 'Cancelled at gate by security guard',
+          }),
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          societyId: user.societyId,
+          userId: pass.residentId,
+          title: 'Visitor Pass Cancelled',
+          message: `Visitor pass for ${pass.visitorName} (${pass.vehicleNumber}) was cancelled at the gate. Slot ${pass.parkingSlot.slotNumber} has been freed.`,
+          type: 'INFO',
+        },
+      });
+    });
+
+    return reply.send({
+      success: true,
+      message: `Pass cancelled successfully. Slot ${pass.parkingSlot.slotNumber} has been released.`,
+    });
+  });
+
   // GET /entry-history
   fastify.get('/entry-history', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = (request as any).user;

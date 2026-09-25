@@ -33,6 +33,8 @@ import {
   MapPin,
   Share2,
   Download,
+  Trash2,
+  XCircle,
 } from 'lucide-react';
 
 export default function ResidentPortal() {
@@ -422,7 +424,21 @@ export default function ResidentPortal() {
                           <span>{new Date(pass.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCancelPass(pass.id);
+                          }}
+                          className="px-2 py-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 text-[11px] font-semibold transition-colors flex items-center gap-1 border border-transparent hover:border-red-200"
+                          title="Cancel Pass"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                          <span>Cancel</span>
+                        </button>
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -781,6 +797,16 @@ export default function ResidentPortal() {
                             View Pass
                           </button>
 
+                          {pass.status === 'SCHEDULED' && (
+                            <button
+                              onClick={() => handleCancelPass(pass.id)}
+                              className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              <span>Cancel</span>
+                            </button>
+                          )}
+
                           {(pass.status === 'SCHEDULED' || pass.status === 'CHECKED_IN') && (
                             <button
                               onClick={() => {
@@ -919,6 +945,22 @@ export default function ResidentPortal() {
                   <span>Open Ticket</span>
                 </a>
               </div>
+
+              {/* Direct Cancel Pass Button */}
+              {(confirmedPass.status === 'SCHEDULED' || !confirmedPass.status) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const pId = confirmedPass.id;
+                    setConfirmedPass(null);
+                    handleCancelPass(pId);
+                  }}
+                  className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                  <span>Cancel Pass & Free Slot</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

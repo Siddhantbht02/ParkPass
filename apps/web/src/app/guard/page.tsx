@@ -27,6 +27,7 @@ import {
   Check,
   X,
   Phone,
+  Trash2,
 } from 'lucide-react';
 
 export default function GuardTerminal() {
@@ -299,6 +300,31 @@ export default function GuardTerminal() {
       alert(`Entry confirmation failed: ${err.message}`);
     } finally {
       setConfirmingEntry(false);
+    }
+  };
+
+  const [cancellingPass, setCancellingPass] = useState(false);
+
+  // Guard Cancels Pass at Gate
+  const handleGuardCancelPass = async (passId: string) => {
+    if (!confirm('Are you sure you want to cancel this visitor pass? The reserved slot will be freed immediately.')) {
+      return;
+    }
+    setCancellingPass(true);
+    try {
+      const res = await fetchApi('/api/v1/guard/cancel-pass', {
+        method: 'POST',
+        body: JSON.stringify({ passId, reason: 'Visitor cancelled at gate' }),
+      });
+      alert('✅ ' + (res.message || 'Pass cancelled and slot freed.'));
+      setVerifyResult(null);
+      setManualCode('');
+      loadDashboard();
+      loadActiveParking();
+    } catch (err: any) {
+      alert('Failed to cancel pass: ' + (err.message || 'Error'));
+    } finally {
+      setCancellingPass(false);
     }
   };
 
@@ -776,15 +802,26 @@ export default function GuardTerminal() {
                       </div>
                     </div>
 
-                    {/* Action: Confirm Entry */}
-                    <button
-                      onClick={() => handleConfirmEntry(verifyResult.pass.id)}
-                      disabled={confirmingEntry}
-                      className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm"
-                    >
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>{confirmingEntry ? 'Confirming...' : 'Confirm Entry'}</span>
-                    </button>
+                    {/* Action: Confirm Entry or Cancel Pass */}
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => handleConfirmEntry(verifyResult.pass.id)}
+                        disabled={confirmingEntry || cancellingPass}
+                        className="w-full py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                      >
+                        <Check className="w-4 h-4 stroke-[3]" />
+                        <span>{confirmingEntry ? 'Confirming Entry...' : 'Confirm Entry'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleGuardCancelPass(verifyResult.pass.id)}
+                        disabled={confirmingEntry || cancellingPass}
+                        className="w-full py-2 px-4 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-semibold text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                        <span>{cancellingPass ? 'Cancelling Pass...' : 'Cancel Pass (Turn Away / Free Slot)'}</span>
+                      </button>
+                    </div>
                   </div>
                 ) : (
                   /* 4. VERIFICATION FAILED / ALREADY CHECKED OUT */

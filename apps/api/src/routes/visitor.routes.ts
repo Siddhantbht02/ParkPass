@@ -76,4 +76,62 @@ export async function visitorRoutes(fastify: FastifyInstance) {
       },
     });
   });
+
+  // Public POST cancel pass by secure token
+  fastify.post('/pass/:token/cancel', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { token } = request.params as any;
+
+    const pass = await prisma.visitorPass.findUnique({
+      where: { secureToken: token },
+      include: { parkingSlot: true, resident: true },
+    });
+
+    if (!pass) {
+      return reply.status(404).send({ error: 'Visitor pass not found' });
+    }
+
+    if (pass.status === 'CHECKED_IN') {
+      return reply.status(400).send({ error: 'Cannot cancel active parked session. Please contact security at the gate.' });
+    }
+
+    if (pass.status !== 'SCHEDULED') {
+      return reply.status(400).send({ error: `Pass is already ${pass.status.toLowerCase()}` });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.visitorPass.update({
+        where: { id: pass.id },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      });
+
+      await tx.parkingReservation.updateMany({
+        where: { passId: pass.id, status: 'ACTIVE' },
+        data: { status: 'CANCELLED' },
+      });
+
+      await tx.visitEvent.create({
+        data: {
+          societyId: pass.societyId,
+          passId: pass.id,
+          eventType: 'PASS_CANCELLED',
+          metadata: JSON.stringify({ cancelledVia: 'Public ticket page' }),
+        },
+      });
+
+      await tx.notification.create({
+        data: {
+          societyId: pass.societyId,
+          userId: pass.residentId,
+          title: 'Visitor Pass Cancelled',
+          message: `Visitor pass for ${pass.visitorName} (${pass.vehicleNumber}) was cancelled. Slot ${pass.parkingSlot.slotNumber} has been released.`,
+          type: 'INFO',
+        },
+      });
+    });
+
+    return reply.send({
+      success: true,
+      message: `Pass cancelled successfully. Slot ${pass.parkingSlot.slotNumber} has been freed.`,
+    });
+  });
 }
