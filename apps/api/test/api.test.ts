@@ -564,4 +564,51 @@ describe('ParkPass Core API & Business Rules Tests', () => {
     assert.equal(extendBody.success, true);
     assert.ok(extendBody.slotNumber);
   });
+
+  it('15. Visitor Ticket Actions: Visitor or resident can extend and cancel via secure token', async () => {
+    // 1. Create a pass
+    const passRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/resident/visitor-passes',
+      headers: { authorization: `Bearer ${residentToken}` },
+      payload: {
+        visitorName: 'Ticket Action Test',
+        vehicleNumber: 'MH02TK9999',
+        vehicleType: 'CAR',
+        validFrom: new Date().toISOString(),
+        durationHours: 3,
+      },
+    });
+    assert.equal(passRes.statusCode, 201);
+    const { pass } = JSON.parse(passRes.body);
+
+    // 2. Extend parking duration on visitor's ticket (+2 hours)
+    const tokenExtendRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/visitor/pass/${pass.secureToken}/extend`,
+      payload: { additionalHours: 2 },
+    });
+    assert.equal(tokenExtendRes.statusCode, 200);
+    const extendData = JSON.parse(tokenExtendRes.body);
+    assert.equal(extendData.success, true);
+    assert.ok(extendData.validUntil);
+
+    // 3. Cancel pass on visitor's ticket
+    const cancelRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/visitor/pass/${pass.secureToken}/cancel`,
+    });
+    assert.equal(cancelRes.statusCode, 200);
+    const cancelData = JSON.parse(cancelRes.body);
+    assert.equal(cancelData.success, true);
+
+    // 4. Verify pass is now CANCELLED
+    const getRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/visitor/pass/${pass.secureToken}`,
+    });
+    assert.equal(getRes.statusCode, 200);
+    const getData = JSON.parse(getRes.body);
+    assert.equal(getData.pass.status, 'CANCELLED');
+  });
 });

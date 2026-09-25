@@ -14,6 +14,20 @@ export function buildApp() {
     logger: process.env.NODE_ENV === 'test' ? false : true,
   });
 
+  // Handle empty JSON bodies gracefully without throwing FST_ERR_CTP_EMPTY_JSON_BODY
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, defaultDone) => {
+    if (!body || (typeof body === 'string' && body.trim() === '')) {
+      defaultDone(null, {});
+      return;
+    }
+    try {
+      defaultDone(null, JSON.parse(body as string));
+    } catch (err: any) {
+      err.statusCode = 400;
+      defaultDone(err, undefined);
+    }
+  });
+
   // CORS
   app.register(cors, {
     origin: (origin, cb) => {

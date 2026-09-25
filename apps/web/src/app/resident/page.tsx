@@ -217,7 +217,7 @@ export default function ResidentPortal() {
   const handleOneTapExtend = async (passId: string, hours: number) => {
     try {
       setExtendingPassId(passId);
-      const res = await fetchApi<{ success: boolean; reassigned?: boolean; slotNumber: string; message: string }>(
+      const res = await fetchApi<{ success: boolean; reassigned?: boolean; slotNumber: string; message: string; newEndTime?: string }>(
         `/api/v1/resident/visitor-passes/${passId}/extend`,
         {
           method: 'POST',
@@ -225,8 +225,19 @@ export default function ResidentPortal() {
         }
       );
       alert('⚡ ' + (res.message || 'Parking extended successfully!'));
+
+      // Update confirmedPass modal in-place if open
+      setConfirmedPass((prev: any) => {
+        if (!prev || prev.id !== passId) return prev;
+        return {
+          ...prev,
+          validUntil: res.newEndTime || prev.validUntil,
+          parkingSlot: res.slotNumber ? { ...(prev.parkingSlot || {}), slotNumber: res.slotNumber } : prev.parkingSlot,
+        };
+      });
+
       await loadDashboard();
-      if (activeTab === 'visitors') loadVisitors();
+      if (activeTab === 'visitors') await loadVisitors();
       if (selectedPass) setSelectedPass(null);
     } catch (err: any) {
       alert('Could not extend: ' + (err.message || 'Parking slots full'));
@@ -308,13 +319,17 @@ export default function ResidentPortal() {
     setActionLoading(true);
     setActionMessage(null);
     try {
-      const res = await fetchApi(`/api/v1/resident/visitor-passes/${passId}/cancel`, { method: 'POST' });
-      setActionMessage(res.message);
-      loadVisitors();
-      loadDashboard();
-      setTimeout(() => setSelectedPass(null), 1500);
+      const res = await fetchApi<{ message: string }>(`/api/v1/resident/visitor-passes/${passId}/cancel`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      });
+      alert('✅ ' + (res.message || 'Pass cancelled and slot released.'));
+      setConfirmedPass(null);
+      setSelectedPass(null);
+      await loadDashboard();
+      if (activeTab === 'visitors') await loadVisitors();
     } catch (err: any) {
-      setActionMessage(err.message);
+      alert('Could not cancel pass: ' + (err.message || 'Failed to cancel'));
     } finally {
       setActionLoading(false);
     }
@@ -1118,6 +1133,20 @@ export default function ResidentPortal() {
                             <span>Extend</span>
                           </button>
                         )}
+                        {pass.status === 'SCHEDULED' && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCancelPass(pass.id);
+                            }}
+                            className="px-2 py-1 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-xs font-semibold flex items-center gap-1"
+                            title="Cancel Pass & Free Slot"
+                          >
+                            <Trash2 className="w-3 h-3 text-red-500" />
+                            <span>Cancel</span>
+                          </button>
+                        )}
                         <ChevronRight className="w-4 h-4 text-slate-400" />
                       </div>
                     </div>
@@ -1237,18 +1266,52 @@ export default function ResidentPortal() {
               <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-2">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-bold text-slate-900">Visitor Pass Confirmed</h3>
-              <p className="text-xs text-slate-500">Reserved slot: <strong>{confirmedPass.parkingSlot?.slotNumber}</strong></p>
+              <h3 className="text-base font-bold text-slate-900">Visitor Pass Ticket</h3>
+              <p className="text-xs text-slate-500">
+                Reserved Slot: <strong className="text-blue-600">{confirmedPass.parkingSlot?.slotNumber || confirmedPass.slotNumber}</strong>
+              </p>
+              {confirmedPass.validUntil && (
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Valid until: {new Date(confirmedPass.validUntil).toLocaleString('en-IN', { timeStyle: 'short', dateStyle: 'short' })}
+                </p>
+              )}
             </div>
 
             {/* QR Code */}
             <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 text-center mb-4">
               {confirmedQrUrl ? (
-                <img src={confirmedQrUrl} alt="Pass QR" className="w-48 h-48 mx-auto rounded-lg" />
+                <img src={confirmedQrUrl} alt="Pass QR" className="w-44 h-44 mx-auto rounded-lg" />
               ) : null}
               <div className="font-mono font-bold text-xs text-slate-800 mt-2">{confirmedPass.passCode}</div>
-              <div className="text-[11px] text-slate-500">{confirmedPass.vehicleNumber}</div>
+              <div className="text-[11px] text-slate-500">{confirmedPass.vehicleNumber} • {confirmedPass.visitorName}</div>
             </div>
+
+            {/* Extend Time Options inside Ticket Modal */}
+            {(confirmedPass.status === 'SCHEDULED' || confirmedPass.status === 'CHECKED_IN') && (
+              <div className="mb-3 p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl">
+                <div className="flex items-center justify-between text-xs font-bold text-amber-900 mb-2">
+                  <span className="flex items-center gap-1.5">
+                    <Zap className="w-3.5 h-3.5 text-amber-600" />
+                    Extend Parking Duration
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-medium">Instant</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 2, 4].map((hrs) => (
+                    <button
+                      key={hrs}
+                      type="button"
+                      disabled={extendingPassId === confirmedPass.id}
+                      onClick={() => handleOneTapExtend(confirmedPass.id, hrs)}
+                      className="py-1.5 px-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 flex items-center justify-center gap-1 transition-all active:scale-95 disabled:opacity-50"
+                    >
+                      <Zap className="w-3 h-3 text-amber-500" />
+                      <span>+{hrs}h</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <button
@@ -1262,14 +1325,39 @@ export default function ResidentPortal() {
                 <span>Share via WhatsApp</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => copyCoordinationLink(confirmedPass.secureToken)}
-                className="w-full py-2.5 px-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5"
-              >
-                <Copy className="w-4 h-4" />
-                <span>{copiedToken === confirmedPass.secureToken ? 'Link Copied!' : 'Copy Ticket Link'}</span>
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => copyCoordinationLink(confirmedPass.secureToken)}
+                  className="py-2 px-3 rounded-xl bg-white border border-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5"
+                >
+                  <Copy className="w-4 h-4" />
+                  <span>{copiedToken === confirmedPass.secureToken ? 'Copied!' : 'Copy Link'}</span>
+                </button>
+
+                <a
+                  href={`/pass/${confirmedPass.secureToken}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-1.5 text-center"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Open Ticket</span>
+                </a>
+              </div>
+
+              {/* Cancel Button inside Ticket Modal */}
+              {confirmedPass.status === 'SCHEDULED' && (
+                <button
+                  type="button"
+                  disabled={actionLoading}
+                  onClick={() => handleCancelPass(confirmedPass.id)}
+                  className="w-full mt-2 py-2 px-3 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4 text-red-600" />
+                  <span>{actionLoading ? 'Cancelling...' : 'Cancel Pass & Free Slot'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

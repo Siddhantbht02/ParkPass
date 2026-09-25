@@ -22,6 +22,7 @@ import {
   Compass,
   Check,
   AlertTriangle,
+  Zap,
 } from 'lucide-react';
 
 export default function VisitorPassPage() {
@@ -32,10 +33,37 @@ export default function VisitorPassPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [extending, setExtending] = useState(false);
   const [updatingArrival, setUpdatingArrival] = useState(false);
   const [arrivalMessage, setArrivalMessage] = useState<string | null>(null);
   const [showEtaSelector, setShowEtaSelector] = useState(false);
   const ticketRef = useRef<HTMLDivElement>(null);
+
+  const handleExtendPass = async (hours: number) => {
+    setExtending(true);
+    try {
+      const res = await fetchApi<{
+        success: boolean;
+        reassigned?: boolean;
+        slotNumber: string;
+        validUntil: string;
+        message: string;
+      }>(`/api/v1/visitor/pass/${token}/extend`, {
+        method: 'POST',
+        body: JSON.stringify({ additionalHours: hours }),
+      });
+      alert('⚡ ' + (res.message || `Parking extended by ${hours} hour(s)!`));
+      setPass((prev: any) => ({
+        ...prev,
+        validUntil: res.validUntil || prev.validUntil,
+        slotNumber: res.slotNumber || prev.slotNumber,
+      }));
+    } catch (err: any) {
+      alert('Could not extend parking: ' + (err.message || 'Parking slots full'));
+    } finally {
+      setExtending(false);
+    }
+  };
 
   const handleCancelPass = async () => {
     if (!confirm('Are you sure you want to cancel this visitor pass? The reserved parking slot will be freed.')) {
@@ -45,6 +73,7 @@ export default function VisitorPassPage() {
     try {
       const res = await fetchApi<{ message: string }>(`/api/v1/visitor/pass/${token}/cancel`, {
         method: 'POST',
+        body: JSON.stringify({}),
       });
       alert('✅ ' + (res.message || 'Visitor pass cancelled successfully. Slot freed.'));
       setPass((prev: any) => ({ ...prev, status: 'CANCELLED' }));
@@ -418,6 +447,33 @@ ${window.location.href}`;
 
         {/* Actions Footer */}
         <div className="bg-slate-50 p-4 border-t border-slate-100 space-y-2.5">
+          {/* One-Tap Extend Stay on Public Ticket */}
+          {(pass.status === 'SCHEDULED' || pass.status === 'CHECKED_IN') && (
+            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-900 mb-2">
+                <span className="flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-600" />
+                  Extend Parking Stay
+                </span>
+                <span className="text-[10px] text-amber-700 font-medium">Instant</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[1, 2, 4].map((hrs) => (
+                  <button
+                    key={hrs}
+                    type="button"
+                    disabled={extending}
+                    onClick={() => handleExtendPass(hrs)}
+                    className="py-1.5 px-2 bg-white hover:bg-amber-100/70 border border-amber-200 rounded-xl text-xs font-bold text-amber-900 flex items-center justify-center gap-1 transition-all active:scale-95 disabled:opacity-50"
+                  >
+                    <Zap className="w-3 h-3 text-amber-500" />
+                    <span>+{hrs}h</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-around gap-2 text-xs">
             <button
               onClick={shareWhatsApp}
@@ -450,7 +506,7 @@ ${window.location.href}`;
             <button
               onClick={handleCancelPass}
               disabled={cancelling}
-              className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors"
+              className="w-full py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
             >
               <Trash2 className="w-3.5 h-3.5 text-red-600" />
               <span>{cancelling ? 'Cancelling Pass...' : 'Cancel Pass & Free Slot'}</span>
