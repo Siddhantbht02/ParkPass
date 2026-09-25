@@ -41,8 +41,15 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // 1. Skip non-GET requests and browser extensions
-  if (request.method !== 'GET' || !url.protocol.startsWith('http')) {
+  // 1. Skip non-GET requests, browser extensions, webpack HMR, hot-reload, and dev query params
+  if (
+    request.method !== 'GET' ||
+    !url.protocol.startsWith('http') ||
+    url.search.includes('v=') ||
+    url.pathname.includes('webpack') ||
+    url.pathname.includes('hot-reload') ||
+    url.pathname.includes('__nextjs')
+  ) {
     return;
   }
 
