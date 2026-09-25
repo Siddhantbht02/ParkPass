@@ -645,7 +645,7 @@ export default function AdminDashboard() {
               }`}
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Guards</span>
+              <span>Guard Settings</span>
             </button>
 
             <button
@@ -657,7 +657,7 @@ export default function AdminDashboard() {
               }`}
             >
               <Building2 className="w-4 h-4" />
-              <span>Residents</span>
+              <span>Resident Settings</span>
             </button>
 
             <button
@@ -669,7 +669,7 @@ export default function AdminDashboard() {
               }`}
             >
               <Settings className="w-4 h-4" />
-              <span>Settings</span>
+              <span>Society Settings</span>
             </button>
 
             <button
@@ -1654,7 +1654,7 @@ export default function AdminDashboard() {
               <div>
                 <h2 className="text-xl font-bold text-slate-900">Society Settings</h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Modify the registered society name and physical address. (Security staff and resident profiles are configured under their respective Guard and Resident Settings sections).
+                  Modify the registered society name and physical address for this society.
                 </p>
               </div>
 
@@ -1699,39 +1699,6 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               </form>
-            </div>
-
-            {/* Quick Link Cards to Guard and Resident Settings */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div
-                onClick={() => setActiveTab('guards')}
-                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-blue-300 transition-all cursor-pointer group"
-              >
-                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-sm">Guard Settings</h3>
-                <p className="text-xs text-slate-500 mt-1">Configure security personnel, contact numbers, and gate credentials.</p>
-                <div className="mt-3 flex items-center text-xs font-bold text-blue-600 group-hover:translate-x-1 transition-transform">
-                  <span>Manage Guards</span>
-                  <ChevronRight className="w-4 h-4 ml-0.5" />
-                </div>
-              </div>
-
-              <div
-                onClick={() => setActiveTab('residents')}
-                className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-sm hover:border-purple-300 transition-all cursor-pointer group"
-              >
-                <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center mb-3 group-hover:scale-105 transition-transform">
-                  <Building2 className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-slate-900 text-sm">Resident Settings</h3>
-                <p className="text-xs text-slate-500 mt-1">Configure apartment residents, tower numbers, and resident portal access.</p>
-                <div className="mt-3 flex items-center text-xs font-bold text-purple-600 group-hover:translate-x-1 transition-transform">
-                  <span>Manage Residents</span>
-                  <ChevronRight className="w-4 h-4 ml-0.5" />
-                </div>
-              </div>
             </div>
           </div>
         )}
