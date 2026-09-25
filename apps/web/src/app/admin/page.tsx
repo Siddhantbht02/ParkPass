@@ -1014,18 +1014,6 @@ export default function AdminDashboard() {
                   </div>
                 </div>
               </div>
-
-              <button
-                onClick={() => {
-                  setTargetCarSlots(dashboardData?.stats?.carSlots?.total ?? parkingSlots.filter(s => s.parkingType !== 'TWO_WHEELER').length);
-                  setTargetBikeSlots(dashboardData?.stats?.twoWheelerSlots?.total ?? parkingSlots.filter(s => s.parkingType === 'TWO_WHEELER').length);
-                  setIsCapacityModalOpen(true);
-                }}
-                className="py-2.5 px-4 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold text-xs transition-colors flex items-center gap-1.5 self-stretch md:self-auto justify-center"
-              >
-                <span>Adjust Capacity Numbers</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
             </div>
 
             {/* Two-Column Layout (Parking Map + Detail Drawer) */}
