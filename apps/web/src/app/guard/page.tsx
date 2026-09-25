@@ -526,9 +526,7 @@ export default function GuardTerminal() {
                     <div
                       key={exp.id}
                       className={`p-3.5 rounded-2xl border transition-all ${
-                        exp.arrivalStatus === 'ARRIVED'
-                          ? 'bg-emerald-50 border-emerald-300 shadow-sm'
-                          : exp.arrivalStatus === 'ON_THE_WAY'
+                        exp.arrivalStatus === 'ON_THE_WAY'
                           ? 'bg-blue-50/70 border-blue-200 shadow-sm'
                           : 'bg-white border-slate-200/80 shadow-sm'
                       }`}
@@ -537,11 +535,6 @@ export default function GuardTerminal() {
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-slate-900 text-xs">{exp.visitorName}</span>
-                            {exp.arrivalStatus === 'ARRIVED' && (
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-600 text-white animate-pulse flex items-center gap-1">
-                                <Check className="w-2.5 h-2.5" /> AT GATE NOW
-                              </span>
-                            )}
                             {exp.arrivalStatus === 'ON_THE_WAY' && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center gap-1">
                                 <Compass className="w-2.5 h-2.5 text-blue-600" /> On Way (~{exp.etaMinutes || 15}m)
@@ -552,7 +545,7 @@ export default function GuardTerminal() {
                                 Delayed (~{exp.etaMinutes || 30}m)
                               </span>
                             )}
-                            {(!exp.arrivalStatus || exp.arrivalStatus === 'SCHEDULED') && (
+                            {(!exp.arrivalStatus || exp.arrivalStatus === 'SCHEDULED' || exp.arrivalStatus === 'ARRIVED') && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
                                 Expected {new Date(exp.validFrom).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                               </span>
