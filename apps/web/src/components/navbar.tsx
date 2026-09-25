@@ -130,30 +130,16 @@ export function Navbar() {
                   </Link>
                 )}
                 {user.role === 'ADMIN' && (
-                  <>
-                    <Link
-                      href="/admin"
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                        pathname === '/admin'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                      }`}
-                    >
-                      Admin Dashboard
-                    </Link>
-                    <Link
-                      href="/resident"
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                    >
-                      Resident View
-                    </Link>
-                    <Link
-                      href="/guard"
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-50"
-                    >
-                      Guard View
-                    </Link>
-                  </>
+                  <Link
+                    href="/admin"
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                      pathname === '/admin'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    Admin Dashboard
+                  </Link>
                 )}
               </div>
 
