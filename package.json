@@ -10,6 +10,8 @@
     "dev:api": "npm --workspace=@parkpass/api run dev",
     "dev:web": "npm --workspace=@parkpass/web run dev",
     "build": "npm --workspace=@parkpass/shared run build && npm --workspace=@parkpass/api run build && npm --workspace=@parkpass/web run build",
+    "build:api": "npx prisma generate && npm --workspace=@parkpass/shared run build && npm --workspace=@parkpass/api run build",
+    "start:api": "npm --workspace=@parkpass/api run start",
     "db:push": "prisma db push",
     "db:seed": "node prisma/seed.js",
     "test": "npm --workspace=@parkpass/api run test"
