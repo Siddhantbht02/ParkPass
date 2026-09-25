@@ -762,11 +762,11 @@ export default function AdminDashboard() {
         <div className="p-4 border-t border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center font-bold text-xs">
-              AD
+              {user?.name ? user.name.slice(0, 2).toUpperCase() : 'AD'}
             </div>
             <div className="text-left text-xs">
-              <div className="font-bold text-slate-900 leading-tight">Secretary</div>
-              <div className="text-[10px] text-slate-400">Powai, Mumbai</div>
+              <div className="font-bold text-slate-900 leading-tight">{user?.name || 'Administrator'}</div>
+              <div className="text-[10px] text-slate-400">{user?.societyName || 'Society Admin'}</div>
             </div>
           </div>
           <button
@@ -2459,7 +2459,7 @@ export default function AdminDashboard() {
                   value={editResidentName}
                   onChange={(e) => setEditResidentName(e.target.value)}
                   required
-                  placeholder="e.g. Siddhant Bhatnagar"
+                  placeholder="e.g. Resident Full Name"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
               </div>
@@ -2487,7 +2487,7 @@ export default function AdminDashboard() {
                   value={editResidentPhone}
                   onChange={(e) => setEditResidentPhone(e.target.value)}
                   required
-                  placeholder="e.g. +919876543210"
+                  placeholder="e.g. +91 98000 00000"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 />
               </div>

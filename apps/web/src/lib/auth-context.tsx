@@ -22,7 +22,6 @@ interface AuthContextType {
   user: UserSession | null;
   isLoading: boolean;
   login: (identifier: string, password?: string) => Promise<UserSession>;
-  quickLogin: (phone: string) => Promise<UserSession>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -70,22 +69,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const quickLogin = async (phone: string) => {
-    let password = 'password123';
-    if (phone.includes('3200')) {
-      password = 'adminpassword123';
-    }
-    const loggedUser = await login(phone, password);
-    if (loggedUser.role === 'RESIDENT') {
-      router.push('/resident');
-    } else if (loggedUser.role === 'GUARD') {
-      router.push('/guard');
-    } else if (loggedUser.role === 'ADMIN') {
-      router.push('/admin');
-    }
-    return loggedUser;
-  };
-
   const logout = async () => {
     try {
       await fetchApi('/api/v1/auth/logout', { method: 'POST' });
@@ -101,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, quickLogin, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

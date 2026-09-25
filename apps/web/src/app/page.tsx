@@ -4,10 +4,10 @@ import React, { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
-import { Car, QrCode, ShieldCheck, Building2, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
+import { Car, QrCode, ShieldCheck, Building2, CheckCircle2, Clock, ArrowRight, Sparkles, KeyRound } from 'lucide-react';
 
 export default function HomePage() {
-  const { user, isLoading, quickLogin } = useAuth();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -33,12 +33,31 @@ export default function HomePage() {
           <p className="text-xl text-slate-600 font-medium mb-2">
             Visitor Parking. Simplified.
           </p>
-          <p className="text-sm text-slate-500 max-w-xl mx-auto">
+          <p className="text-sm text-slate-500 max-w-xl mx-auto mb-6">
             Time-bound visitor parking reservations, instant QR pass generation, and smartphone gate verification for Indian residential societies.
           </p>
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href="/register-society"
+              className="py-3 px-6 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold text-xs transition-all shadow-md shadow-blue-500/25 flex items-center gap-2 group active:scale-95"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>Register Your Society</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+            </Link>
+
+            <Link
+              href="/register"
+              className="py-3 px-6 rounded-2xl bg-white hover:bg-slate-50 border border-slate-200/90 text-slate-700 font-bold text-xs transition-colors flex items-center gap-2 shadow-xs active:scale-95"
+            >
+              <KeyRound className="w-4 h-4 text-slate-400" />
+              <span>Join with Society Code</span>
+            </Link>
+          </div>
         </div>
 
-        {/* 3 Role Quick Access Portals */}
+        {/* 3 Role Access Portals */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {/* Resident Portal */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
@@ -65,13 +84,13 @@ export default function HomePage() {
                 </li>
               </ul>
             </div>
-            <button
-              onClick={() => quickLogin('+919876543210')}
+            <Link
+              href="/resident"
               className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2"
             >
-              <span>Enter as Resident (Siddhant)</span>
+              <span>Access Resident Portal</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </Link>
           </div>
 
           {/* Guard Terminal */}
@@ -99,13 +118,13 @@ export default function HomePage() {
                 </li>
               </ul>
             </div>
-            <button
-              onClick={() => quickLogin('+919876543220')}
+            <Link
+              href="/guard"
               className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2"
             >
-              <span>Enter Guard Terminal (Main Gate)</span>
+              <span>Access Guard Terminal</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            </Link>
           </div>
 
           {/* Admin Dashboard */}
@@ -133,45 +152,20 @@ export default function HomePage() {
                 </li>
               </ul>
             </div>
-            <button
-              onClick={() => quickLogin('+919876543200')}
+            <Link
+              href="/admin"
               className="w-full py-2.5 px-4 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-semibold text-xs transition-colors flex items-center justify-center gap-2"
             >
-              <span>Enter Admin Dashboard</span>
+              <span>Access Admin Dashboard</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Demo Credentials Box */}
-        <div className="mt-12 bg-white rounded-xl p-5 border border-slate-200 max-w-2xl mx-auto shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <Clock className="w-4 h-4 text-emerald-600" />
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Demo Environment Accounts</h3>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-              <div className="font-semibold text-slate-800">Resident</div>
-              <div className="text-slate-500 font-mono text-[11px]">+919876543210</div>
-              <div className="text-slate-400 text-[10px]">password123</div>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-              <div className="font-semibold text-slate-800">Security Guard</div>
-              <div className="text-slate-500 font-mono text-[11px]">+919876543220</div>
-              <div className="text-slate-400 text-[10px]">password123</div>
-            </div>
-            <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-              <div className="font-semibold text-slate-800">Admin Secretary</div>
-              <div className="text-slate-500 font-mono text-[11px]">+919876543200</div>
-              <div className="text-slate-400 text-[10px]">adminpassword123</div>
-            </div>
+            </Link>
           </div>
         </div>
       </div>
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-        ParkPass MVP • Skyline Residency, Powai, Mumbai • Production-Oriented Visitor Parking Management
+        ParkPass — Smart Visitor Parking & Automated Gate Clearance System
       </footer>
     </div>
   );

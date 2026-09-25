@@ -980,7 +980,7 @@ export default function ResidentPortal() {
                     type="text"
                     value={visitorName}
                     onChange={(e) => setVisitorName(e.target.value)}
-                    placeholder="e.g. Siddhant"
+                    placeholder="e.g. Rahul Sharma"
                     required
                     className="w-full px-3.5 py-2.5 rounded-xl bg-black/40 border border-white/15 text-xs text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   />

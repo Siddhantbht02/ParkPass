@@ -7,10 +7,10 @@ import { useAuth } from '@/lib/auth-context';
 import { Car, Lock, Phone, ArrowRight, ShieldCheck, AlertCircle, UserPlus } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login, quickLogin, isLoading } = useAuth();
+  const { login, isLoading } = useAuth();
   const router = useRouter();
-  const [identifier, setIdentifier] = useState('+919876543210');
-  const [password, setPassword] = useState('password123');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -40,7 +40,7 @@ export default function LoginPage() {
               <Car className="w-6 h-6" />
             </div>
             <h1 className="text-xl font-bold text-slate-900">Sign in to ParkPass</h1>
-            <p className="text-xs text-slate-500 mt-1">Skyline Residency • Resident, Guard & Admin Portal</p>
+            <p className="text-xs text-slate-500 mt-1">Resident, Security Guard & Society Admin Portal</p>
           </div>
 
           {error && (
@@ -61,7 +61,7 @@ export default function LoginPage() {
                   type="text"
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="+919876543210 or email"
+                  placeholder="Enter registered mobile or email"
                   required
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 />
@@ -78,7 +78,7 @@ export default function LoginPage() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
+                  placeholder="Enter your password"
                   required
                   className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
                 />
@@ -94,62 +94,29 @@ export default function LoginPage() {
               <ArrowRight className="w-4 h-4" />
             </button>
 
-            <div className="pt-2 flex items-center justify-between text-xs text-slate-500">
-              <span>New resident or guard?</span>
-              <Link
-                href="/register"
-                className="font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>Join with Society Code</span>
-              </Link>
+            <div className="pt-3 border-t border-slate-100 flex flex-col gap-2 text-xs">
+              <div className="flex items-center justify-between text-slate-600">
+                <span>New resident or guard?</span>
+                <Link
+                  href="/register"
+                  className="font-bold text-emerald-700 hover:text-emerald-800 flex items-center gap-1 hover:underline"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Join with Society Code</span>
+                </Link>
+              </div>
+
+              <div className="flex items-center justify-between text-slate-600">
+                <span>RWA / Society Admin?</span>
+                <Link
+                  href="/register-society"
+                  className="font-bold text-blue-700 hover:text-blue-800 hover:underline"
+                >
+                  Register New Society
+                </Link>
+              </div>
             </div>
           </form>
-
-          {/* Quick Demo Selector */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <div className="flex items-center gap-1.5 mb-3">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span className="text-xs font-bold text-slate-800">Quick One-Click Demo Access</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => quickLogin('+919876543210')}
-                className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all"
-              >
-                <div className="font-semibold text-slate-900">Siddhant</div>
-                <div className="text-[11px] text-slate-500">Resident • Flat A-804</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickLogin('+919876543211')}
-                className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/50 transition-all"
-              >
-                <div className="font-semibold text-slate-900">Aarav Sharma</div>
-                <div className="text-[11px] text-slate-500">Resident • Flat A-805</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickLogin('+919876543220')}
-                className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-blue-500 hover:bg-blue-50/50 transition-all"
-              >
-                <div className="font-semibold text-slate-900">Rajesh Kumar</div>
-                <div className="text-[11px] text-slate-500">Guard • Main Gate</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => quickLogin('+919876543200')}
-                className="p-2.5 text-left rounded-xl border border-slate-200 hover:border-purple-500 hover:bg-purple-50/50 transition-all"
-              >
-                <div className="font-semibold text-slate-900">Admin Secretary</div>
-                <div className="text-[11px] text-slate-500">Society Admin</div>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

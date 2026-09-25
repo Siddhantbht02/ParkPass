@@ -25,7 +25,7 @@ import {
 import { fetchApi } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 
-export default function RegisterPage() {
+function RegisterContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user } = useAuth();
@@ -729,5 +729,19 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center">
+          <div className="text-xs text-slate-400">Loading registration...</div>
+        </div>
+      }
+    >
+      <RegisterContent />
+    </React.Suspense>
   );
 }
